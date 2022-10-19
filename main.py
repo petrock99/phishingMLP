@@ -3,6 +3,7 @@
 # Press ⌃R to execute it or replace it with your code.
 # Press Double ⇧ to search everywhere for classes, files, tool windows, actions, and settings.
 
+import itertools
 import os
 import numpy as np
 import pandas as pd
@@ -11,12 +12,12 @@ import seaborn as sns
 import zipfile
 
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 from sklearn import preprocessing
-from sklearn.metrics import f1_score as f1
+from sklearn.metrics import accuracy_score
 from sklearn.metrics import confusion_matrix
-from sklearn.metrics import *
-import itertools
+from sklearn.metrics import precision_score
+from sklearn.metrics import recall_score
+from sklearn.metrics import f1_score
 
 import torch
 import torch.nn as nn
@@ -25,6 +26,8 @@ from torch.utils.data import DataLoader
 
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
+
+kLabelColumn = 'Label'
 
 def loadData():
     # Extract the .csv if it hasn't been already
@@ -38,48 +41,42 @@ def loadData():
     # print(df_data.shape)
     # print(df_data.head(5))
 
-    # Convert -1's in the 'Label' column to 0's. pytorch binary NNs require this.
-    assert df_data['Label'].isin([-1, 1]).all(), "Expected only -1 & 1 in the 'Label' column"
-    df_data.loc[df_data['Label'] < 0, 'Label'] = 0
+    # Convert -1's in the 'Label' column to 0's to make pytorch happy
+    assert df_data[kLabelColumn].isin([-1, 1]).all(), "Expected only -1 & 1 in the 'Label' column"
+    df_data.loc[df_data[kLabelColumn] < 0, kLabelColumn] = 0
     # print(df_data.head(5))
 
     # Remove any rows containing at least one null value
     df_data.dropna(inplace=True)
     # print(df_data.shape)
+    return df_data
 
+
+def plotData(df_data):
     # Ignore Categorical columns: columns with 3 or less unique values
     # e.g. columns with only -1, 0 and/or 1 values will be ignored.
-    # is_not_categorical = lambda col : (1. * df_data[col].nunique() / df_data[col].count()) >= 0.002
-    # is_not_categorical = lambda col : (1. * df_data[col].nunique() / df_data[col].count()) >= 0.0004
     # is_not_categorical = lambda col : df_data[col].nunique() >= 20
-    # is_not_categorical = lambda col : col != 'Label'        # everything but 'Label' column
+    # is_not_categorical = lambda col : col != kLabelColumn        # everything but 'Label' column
     is_not_categorical = lambda col : df_data[col].nunique() > 3
-    useful_col_names = [col for col in df_data.keys() if is_not_categorical(col)]
-    # print(df_data[column_names].shape)
-    return (df_data, useful_col_names)
+    numerical_col_names = [col for col in df_data.keys() if is_not_categorical(col)]
 
-
-def correlationPlot(df_data):
-    # Correlation Plot for the Numerical(continuous) features
-    corr = df_data.corr()
+    # Correlation Plot for the Numerical features
+    corr = df_data[numerical_col_names].corr()
     fig = plt.figure(figsize=(12,12), dpi=80)
     mask = np.triu(np.ones_like(corr, dtype=bool))
     sns.heatmap(corr, mask=mask, cmap='BuPu', robust=True, center=0, square=True, linewidths=.5)
-    plt.title('Correlation of Numerical(Continuous) Features', fontsize=15, font="Serif")
+    plt.title('Correlation of Numerical (Continuous) Features', fontsize=15, font="Serif")
     plt.show()
 
-
-def distributionOfMean(df_all_data, useful_col_names):
-    df_distr = df_all_data.groupby('Label')[useful_col_names].mean().reset_index().T
+    # Display a distribution of the numerical column means
+    df_distr = df_data.groupby(kLabelColumn)[numerical_col_names].mean().reset_index().T
     df_distr.rename(columns={0: 'Phishing', 1: "Legitimate"}, inplace=True)
 
-    # plt.style.use('ggplot')
     plt.rcParams['axes.facecolor'] = 'w'
-    ax = df_distr[1:-3][['Phishing', 'Legitimate']].plot(kind='bar', title="Distribution of Average values across 'Label'",
+    ax = df_distr[1:-3][['Phishing', 'Legitimate']].plot(kind='bar', title="Distribution of Average values across " + kLabelColumn,
                                                          figsize=(12, 8), legend=True, fontsize=12)
     ax.set_xlabel("Numerical Features", fontsize=14)
     ax.set_ylabel("Average Values", fontsize=14)
-    # ax.set_ylim(0,500000)
     plt.show()
 
 
@@ -218,20 +215,20 @@ def test(model, test_dataloader, y_test_tensor):
     print("Recall of the MLP    :\t"+str(recall_score(y_test, y_test_pred)))
     print("F1 Score of the Model :\t"+str(f1_score(y_test, y_test_pred)))
 
+
 def main():
     # Set RNG seeds for more reproducible results
     torch.manual_seed(12345)
     np.random.seed(12345)
 
-    (df_data, useful_col_names) = loadData()
-    df_filtered_data = df_data[useful_col_names]
-    correlationPlot(df_filtered_data)
-    distributionOfMean(df_data, useful_col_names)
+    df_data = loadData()
+    plotData(df_data)
+    x = df_data.loc[:, df_data.columns != kLabelColumn]
+    y = df_data[kLabelColumn]
     (x_train_tensor,
      x_test_tensor,
      y_train_tensor,
-     y_test_tensor) = buildTrainAndTestSets(df_filtered_data,
-                                            df_data['Label'])
+     y_test_tensor) = buildTrainAndTestSets(x, y)
     (train_dataloader,
      test_dataloader) = buildDataLoader(x_train_tensor,
                                         x_test_tensor,
