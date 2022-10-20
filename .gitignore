@@ -1,3 +1,4 @@
 .idea
 envs
 *.csv
+loss_plots

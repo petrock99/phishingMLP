@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import time
 import zipfile
 
 from sklearn.model_selection import train_test_split
@@ -37,19 +38,23 @@ class BinaryMLPModel(nn.Module):
         super(BinaryMLPModel, self).__init__()
 
         # Build a list of hidden linear layers and corresponding batchnorms
-        self.layers = []
-        self.batchnorms = []
+        layers = []
+        batchnorms = []
         in_features = n_inputs
         out_features = 0
         for out_features in n_hiddens_list:
-            self.layers.append(nn.Linear(in_features, out_features))
-            self.batchnorms.append(nn.BatchNorm1d(out_features))
+            layers.append(nn.Linear(in_features, out_features))
+            batchnorms.append(nn.BatchNorm1d(out_features))
             in_features = out_features
+
         # Set up the output layer, which only has one node to make this model
         # a binary classifier
         n_output=1
-        self.layer_out = nn.Linear(out_features, n_output)
+        layers.append(nn.Linear(out_features, n_output))
 
+        self.n_hiddens_list = n_hiddens_list
+        self.layers = nn.ModuleList(layers)
+        self.batchnorms = nn.ModuleList(batchnorms)
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
         self.dropout = nn.Dropout(p=0.1)
@@ -61,34 +66,46 @@ class BinaryMLPModel(nn.Module):
 
     def forward(self, inputs):
         x = inputs
-        for (layer, batchnorm) in zip(self.layers, self.batchnorms):
+        assert len(self.layers) == len(self.batchnorms) + 1, "Expected last layer to be the output later"
+        for (layer, batchnorm) in zip(self.layers[:-1], self.batchnorms):
             x = self.relu(layer(x))
             x = batchnorm(x)
         x = self.dropout(x)
-        return self.sigmoid(self.layer_out(x))
+        return self.sigmoid(self.layers[-1](x))
 
     def __str__(self):
         return f'{super().__str__()}\nUsing: {self.device}'
 
 
 class PhishingDetector:
-    def __init__(self, csv_name, n_hiddens_list, plotData = False):
+    def __init__(self, csv_name, plot_data = False):
         # Set RNG seeds for more reproducible results
         torch.manual_seed(12345)
         np.random.seed(12345)
 
-        self.df_data = self.loadData(csv_name)
-        if plotData == True:
-            self.plotData()
+        # Load the .csv from disk
+        self.df_data = self.load_data(csv_name)
+        if plot_data == True:
+            self.plot_data()
+        # Build the training & test data sets & loaders
+        self.build_train_and_test_sets()
+        self.build_data_loaders()
 
-        self.buildTrainAndTestSets()
-        self.buildDataLoaders()
+        # Build a path to save the loss plots into. Include the date/time
+        # to make differentiating runs easier.
+        self.loss_plots_path = os.path.join("./loss_plots", time.strftime(f"{csv_name} %y-%m-%d at %H.%M.%S"))
+
+    def build_model(self, n_hiddens_list):
+        # Set RNG seeds for more reproducible results
+        torch.manual_seed(12345)
+        np.random.seed(12345)
 
         n_inputs = self.x_train_tensor.shape[1]
+        self.n_hiddens_list = n_hiddens_list
         self.model = BinaryMLPModel(n_inputs, n_hiddens_list)
         # print(self.model)
 
-    def loadData(self, csv_name):
+    def load_data(self, csv_name):
         # Extract the .csv if it hasn't been already
         datasets_path = "./datasets"
         csv_path = os.path.join(datasets_path, csv_name)
@@ -113,7 +130,7 @@ class PhishingDetector:
         # print(df_data.shape)
         return df_data
 
-    def buildTrainAndTestSets(self):
+    def build_train_and_test_sets(self):
         self.x = self.df_data.loc[:, self.df_data.columns != kLabelColumn]
         self.y = self.df_data[kLabelColumn]
 
@@ -136,7 +153,7 @@ class PhishingDetector:
         # print(f"\nTrain set Tensors\n{self.x_train_tensor}\n{self.y_train_tensor}")
         # print(f"\nTest set Tensors\n{self.x_test_tensor}\n{self.y_test_tensor}")
 
-    def buildDataLoaders(self):
+    def build_data_loaders(self):
         # Both x_train and y_train can be combined in a single TensorDataset, which will be easier to iterate over and slice
         self.y_train_tensor = self.y_train_tensor.unsqueeze(1)
         train_dataset = TensorDataset(self.x_train_tensor, self.y_train_tensor)
@@ -149,7 +166,7 @@ class PhishingDetector:
         test_dataset = TensorDataset(self.x_test_tensor, self.y_test_tensor)
         self.test_dataloader = DataLoader(test_dataset, batch_size=32)
 
-    def plotData(self):
+    def plot_data(self):
         # Ignore Categorical columns: columns with 3 or less unique values
         # e.g. columns with only -1, 0 and/or 1 values will be ignored.
         # is_not_categorical = lambda col : self.df_data[col].nunique() >= 20
@@ -159,11 +176,11 @@ class PhishingDetector:
 
         # Correlation Plot for the Numerical features
         corr = self.df_data[numerical_col_names].corr()
-        fig = plt.figure(figsize=(12,12), dpi=80)
         mask = np.triu(np.ones_like(corr, dtype=bool))
         sns.heatmap(corr, mask=mask, cmap='BuPu', robust=True, center=0, square=True, linewidths=.5)
         plt.title('Correlation of Numerical (Continuous) Features', fontsize=15, font="Serif")
         plt.show()
+        plt.clf()
 
         # Display a distribution of the numerical column means
         df_distr = self.df_data.groupby(kLabelColumn)[numerical_col_names].mean().reset_index().T
@@ -175,8 +192,22 @@ class PhishingDetector:
         ax.set_xlabel("Numerical Features", fontsize=14)
         ax.set_ylabel("Average Values", fontsize=14)
         plt.show()
+        plt.clf()
 
-    def train(self, learning_rate, n_epochs, plotLoss = False):
+    def plot_loss(self, train_loss, learning_rate, n_epochs, to_disk=False):
+        plt.plot(train_loss)
+        if to_disk == True:
+            # Create a folder to save the loss plots into if necessary
+            if not os.path.exists(self.loss_plots_path):
+                os.makedirs(self.loss_plots_path)
+            plot_file_path = os.path.join(self.loss_plots_path,
+                                          f"{self.model.n_hiddens_list}-{learning_rate}-{n_epochs}.png")
+            plt.savefig(plot_file_path)
+        else:
+            plt.show()
+        plt.clf()
+
+    def train(self, learning_rate, n_epochs, plot_loss = False, to_disk = False):
         loss_func = nn.BCELoss()
         optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
 
@@ -196,11 +227,8 @@ class PhishingDetector:
             train_loss.append(loss.item())
 
         last_loss = train_loss[-1]
-        if plotLoss == True:
-            print(f"Last iteration loss value: {last_loss}")
-            plt.plot(train_loss)
-            plt.show()
-
+        if plot_loss == True:
+            self.plot_loss(train_loss, learning_rate, n_epochs, to_disk)
         return last_loss
 
     def test(self):
@@ -220,45 +248,58 @@ class PhishingDetector:
 
         conf_matrix = confusion_matrix(self.y_test, y_test_pred)
         accuracy = accuracy_score(self.y_test, y_test_pred)
-        if accuracy > .9:
-            print("Confusion Matrix of the Test Set")
-            print("-----------")
-            print(conf_matrix)
-            print(f"Accuracy of the MLP   :\t{accuracy}")
-            print(f"Precision of the MLP  :\t{precision_score(self.y_test, y_test_pred)}")
-            print(f"Recall of the MLP     :\t{recall_score(self.y_test, y_test_pred)}")
-            print(f"F1 Score of the Model :\t{f1_score(self.y_test, y_test_pred)}")
+        precision = precision_score(self.y_test, y_test_pred)
+        recall = recall_score(self.y_test, y_test_pred)
+        f1 = f1_score(self.y_test, y_test_pred)
+        avg_score = (accuracy + precision + recall + f1) / 4
+        if avg_score > .95:
+            print(f"Confusion Matrix of the Test Set\n{conf_matrix}")
+            print(f"Accuracy:   {accuracy}")
+            print(f"Precision:  {precision}")
+            print(f"Recall:     {recall}")
+            print(f"F1:         {f1}")
+            print(f"Avg Score:  {avg_score}")
 
-        return accuracy
+        return avg_score
 
 
 def main():
+    print(f"\nUsing {'GPU' if torch.cuda.is_available() else 'CPU'}")
 
     csv_name_list = ["DS4Tan.csv"]
-    n_epoch_list = [20, 40, 80, 160, 360]
-    learning_rate_list = [0.1, 0.01, 0.001, 0.0001]
-    n_hidden_lists = [[100, 150], [100, 300], [200, 300], [100, 200, 50], [100, 200, 300], [300, 200, 100], [300, 200], [300, 100]]
-    high_scores = []
+    # n_epoch_list = [40, 80, 160, 360]
+    # learning_rate_list = [0.01, 0.001, 0.0001]
+    # n_hidden_lists = [[100, 150], [100, 300], [200, 300], [100, 200, 50], [100, 200, 300], [300, 200, 100], [300, 200], [300, 100]]
+    n_epoch_list = [300]
+    # learning_rate_list = [0.01, 0.001, 0.0001]
+    learning_rate_list = [0.0001]
+    n_hidden_lists = [[200, 300], [300, 200], [100, 300], [300, 100], [100, 200, 50], [50, 200, 100], [100, 200, 300], [300, 200, 100], [50, 50, 50], [100, 100, 100], [400, 500], [500, 400]]
     for csv_name in csv_name_list:
+        high_scores = []
+        ds4_tran = PhishingDetector(csv_name, plot_data=False)
         for n_hidden_list in n_hidden_lists:
             for learning_rate in learning_rate_list:
                 for n_epochs in n_epoch_list:
-                    print("****************************************")
+                    print("\n****************************************")
                     print(f"Hidden layers: {n_hidden_list}, learning rate: {learning_rate}, epoch: {n_epochs}")
-                    ds4_tran = PhishingDetector(csv_name, n_hidden_list, plotData=False)
-                    loss = ds4_tran.train(learning_rate=learning_rate, n_epochs=n_epochs, plotLoss=False)
-                    if loss < 0.2:
-                        accuracy = ds4_tran.test()
-                        if accuracy > 0.9:
-                            high_scores.append([csv_name, accuracy, n_hidden_list, n_epochs, learning_rate])
-                        else:
-                            print(f"Accuracy below threshold: {accuracy}")
+                    # Start the model off fresh each run
+                    ds4_tran.build_model(n_hidden_list)
+                    # Kick off the training run
+                    loss = ds4_tran.train(learning_rate=learning_rate, n_epochs=n_epochs, plot_loss=True, to_disk=True)
+                    avg_score = ds4_tran.test()
+                    if avg_score > 0.95:
+                        # Keep track of high performing configurations
+                        high_scores.append([csv_name, avg_score, loss, n_hidden_list, n_epochs, learning_rate])
                     else:
-                        print(f"Loss above threshold: {loss}. Skipping test phase.")
+                        print(f"Avg score below threshold: {avg_score}, loss: {loss}")
 
-    high_scores_str = "\n".join(high_scores)
-    print("------------------------------------------")
-    print(f"high scores:\n{high_scores_str}")
+        # Sort by avg_score in descending order
+        def sort_func(element):
+            return element[1]
+        high_scores.sort(reverse=True, key=sort_func)
+        print("------------------------------------------")
+        print("high scores:")
+        [print(i) for i in high_scores]
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
