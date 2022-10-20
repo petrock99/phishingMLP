@@ -332,9 +332,11 @@ def main():
         for n_hidden_list in n_hidden_lists:
             for learning_rate in learning_rate_list:
                 for n_epochs in n_epoch_list:
+
                     header_str = "\n****************************************\n" \
                                  + f"csv: '{csv_name}', hidden layers: {n_hidden_list}, epoch: {n_epochs}, learning rate: {learning_rate}"
                     print(header_str)
+
                     # Start the model off fresh each run
                     ds4_tran.build_model(n_hidden_list)
                     # Kick off the training run
@@ -342,7 +344,9 @@ def main():
                     # Test the newly trained model
                     (conf_matrix, accuracy, precision, recall, f1) = ds4_tran.test()
                     avg_score = (accuracy + precision + recall + f1) / 4
+                    # If the avg score is above a threshold then consider it a good run
                     if avg_score > 0.95:
+                        # Build & print the metrics string
                         metrics_str = f"Avg Score:  {avg_score}\n" \
                                       f"Accuracy:   {accuracy}\n" \
                                       f"Precision:  {precision}\n" \
@@ -356,7 +360,7 @@ def main():
                         # Keep track of high performing configurations
                         high_scores.append([avg_score, n_hidden_list, n_epochs, learning_rate])
                         high_scores_to_disk.append((avg_score, metrics_str))
-                        # Save the state dict to disk for later
+                        # Save the mode state dict to disk for later
                         ds4_tran.save_state_dict(learning_rate, n_epochs)
                     else:
                         print(f"Avg score below threshold: {avg_score}, loss: {loss}")
