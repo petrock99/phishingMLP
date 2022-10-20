@@ -103,6 +103,7 @@ class PhishingDetector:
         assert not os.path.exists(self.results_path), f"Expected '{self.results_path}' to not exist (yet)."
         # Create the results folder
         os.makedirs(self.results_path)
+        print(f"Saving results to '{os.path.abspath(self.results_path)}'")
 
         # plot stats about the data
         self.plot_data()
