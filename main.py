@@ -3,6 +3,7 @@
 # Press ⌃R to execute it or replace it with your code.
 # Press Double ⇧ to search everywhere for classes, files, tool windows, actions, and settings.
 
+import copy
 import itertools
 import os
 import math
@@ -84,17 +85,23 @@ class PhishingDetector:
         torch.manual_seed(12345)
         np.random.seed(12345)
 
+        # These are initialized at runtime
         self.n_hiddens_list = []
+        self.learning_rate = 0.0
         self.model = None
+        self.optimizer = None
+        self.loss_func = nn.BCELoss()   # Binary Cross Entropy
+        self.best_state_dict = {}
 
         # Load the .csv from disk
         self.df_data = self.load_data(csv_name)
 
-        # Build the training & test data sets & loaders
+        # Build the train, validate & test data sets & loaders
         (self.x_train_tensor, self.y_train_tensor,
+         self.x_validate_tensor, self.y_validate_tensor,
          self.x_test_tensor, self.y_test_tensor,
-         self.train_dataloader, self.test_dataloader,
-         self.y_test) = self.build_train_and_test_data(self.df_data)
+         self.train_dataloader, self.validate_dataloader,
+         self.test_dataloader, self.y_test) = self.split_data(self.df_data)
 
         # Build a path to save the results into. Include the date/time
         # to make differentiating runs easier, and to semi-guarantee
@@ -108,7 +115,7 @@ class PhishingDetector:
         # plot stats about the data
         self.plot_data()
 
-    def build_model(self, n_hiddens_list):
+    def build_model(self, n_hiddens_list, learning_rate):
         # Set/Reset RNG seeds for more reproducible results
         torch.manual_seed(12345)
         np.random.seed(12345)
@@ -118,7 +125,10 @@ class PhishingDetector:
         # from scratch with new paramaters & weights etc.
         n_inputs = self.x_train_tensor.shape[1]
         self.n_hiddens_list = n_hiddens_list
+        self.learning_rate = learning_rate
         self.model = BinaryMLPModel(n_inputs, n_hiddens_list)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
+        self.best_state_dict = {}
         # print(self.model)
 
     @staticmethod
@@ -149,37 +159,53 @@ class PhishingDetector:
         return df_data
 
     @staticmethod
-    def build_train_and_test_data(df_data):
+    def split_data(df_data):
         # Extract the raw data and label from df_data
         x = df_data.loc[:, df_data.columns != kLabelColumn]     # Don't include 'Label'
         y = df_data[kLabelColumn]
 
-        # Set up a 75/25 split for training/testing
+        # Set up a 60/20/20 split for training/validating/testing
         # Will randomize the entries.
-        x_train, x_test, y_train, y_test = train_test_split(x, y, random_state=42)
-        # print(f"\n--Training data samples--\n{x_train.shape}")
+        x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
+        x_train, x_validate, y_train, y_validate = train_test_split(x_train, y_train, test_size=0.25, random_state=42)
+        assert len(x_test) == len(x_validate), "Expected x_validate & x_test to be the same size"
+        # print(f"\n--Data Split--\n" \
+        #       f"Training: {x_train.shape}\n"
+        #       f"Validate: {x_validate.shape}\n"
+        #       f"Test: {x_test.shape}\n")
 
-        # Use a MinMaxScaler to scale all the features of Train & Test dataframes
+        # Use a MinMaxScaler to scale all the features of Train, Validate & Test dataframes
         # to normalized values
         scaler = preprocessing.MinMaxScaler()
         x_train = scaler.fit_transform(x_train.values)
+        x_validate = scaler.fit_transform(x_validate.values)
         x_test = scaler.fit_transform(x_test.values)
-        # print(f"Scaled values of Train set\n{x_train}")
-        # print(f"\nScaled values of Test set\n{x_test}")
+        # print(f"Scaled values of Training set\n{x_train}\n" \
+        #       f"Scaled values of Validation set\n{x_validate}\n" \
+        #       f"Scaled values of Testing set\n{x_test}\n")
 
-        # Convert the Train and Test sets into Tensors
+        # Convert the Train, Validate and Test sets into Tensors
         x_train_tensor = torch.from_numpy(x_train).float()
         y_train_tensor = torch.from_numpy(y_train.values.ravel()).float()
+        x_validate_tensor = torch.from_numpy(x_validate).float()
+        y_validate_tensor = torch.from_numpy(y_validate.values.ravel()).float()
         x_test_tensor = torch.from_numpy(x_test).float()
         y_test_tensor = torch.from_numpy(y_test.values.ravel()).float()
-        # print(f"\nTrain set Tensors\n{x_train_tensor}\n{y_train_tensor}")
-        # print(f"\nTest set Tensors\n{x_test_tensor}\n{y_test_tensor}")
+        # print(f"Training set Tensors\n{x_train_tensor}\n{y_train_tensor}\n" \
+        #       f"Validation set Tensors\n{x_validate_tensor}\n{y_validate_tensor}\n" \
+        #       f"\nTesting set Tensors\n{x_test_tensor}\n{y_test_tensor}")
 
         # Stuff x_train_tensor, y_train_tensor into a TensorDataset and
         # create a DataLoader from it.
         y_train_tensor = y_train_tensor.unsqueeze(1)
         train_dataset = TensorDataset(x_train_tensor, y_train_tensor)
         train_dataloader = DataLoader(train_dataset, batch_size=64)
+
+        # Stuff x_validate_tensor, y_validate_tensor into a TensorDataset and
+        # create a DataLoader from it.
+        y_validate_tensor = y_validate_tensor.unsqueeze(1)
+        validate_dataset = TensorDataset(x_validate_tensor, y_validate_tensor)
+        validate_dataloader = DataLoader(validate_dataset, batch_size=32)
 
         # Stuff x_test_tensor, y_test_tensor into a TensorDataset and
         # create a DataLoader from it.
@@ -188,8 +214,9 @@ class PhishingDetector:
         test_dataloader = DataLoader(test_dataset, batch_size=32)
 
         return (x_train_tensor, y_train_tensor,
+                x_validate_tensor, y_validate_tensor,
                 x_test_tensor, y_test_tensor,
-                train_dataloader, test_dataloader,
+                train_dataloader, validate_dataloader, test_dataloader,
                 y_test)
 
     def plot_data(self):
@@ -237,64 +264,158 @@ class PhishingDetector:
         plt.clf()
         plt.cla()
 
-    def plot_loss(self, train_loss, learning_rate, n_epochs):
+    def plot_accuracy(self, train_accuracy, test_accuracy, n_epochs):
         assert os.path.exists(self.results_path), f"Expected '{self.results_path}' to exist"
 
         # Create a path to the .png file with the stats for this model in the name.
-        # e.g. "[5, 5]-0.001-300-loss.png"
+        # e.g. "[5, 5]-0.001-300-accuracy.png"
         plot_file_path = os.path.join(self.results_path,
-                                      f"{self.model.n_hiddens_list}-{learning_rate}-{n_epochs}-loss.png")
-        # Plot the loss data
-        plt.plot(train_loss)
+                                      f"{self.model.n_hiddens_list}-{self.learning_rate}-{n_epochs}-accuracy.png")
+        # Set up the title and labels
+        fig = plt.figure()
+        plt.xlabel('Epoch')
+        plt.ylabel('Accuracy %')
+        # Plot the training accuracy data
+        plt.plot(train_accuracy, label="Training")
+        # Plot the testing accuracy data
+        plt.plot(test_accuracy, label="Validation")
+        plt.legend()
         # Save the plot image to disk
         plt.savefig(plot_file_path)
         # Clear the figure & axis for the next plot
         plt.clf()
         plt.cla()
 
-    def save_state_dict(self, learning_rate, n_epochs):
+    def plot_loss(self, min_loss, min_loss_epoch, train_loss, validate_loss, n_epochs):
+        assert os.path.exists(self.results_path), f"Expected '{self.results_path}' to exist"
+
+        # Create a path to the .png file with the stats for this model in the name.
+        # e.g. "[5, 5]-0.001-300-loss.png"
+        plot_file_path = os.path.join(self.results_path,
+                                      f"{self.model.n_hiddens_list}-{self.learning_rate}-{n_epochs}-loss.png")
+        # Set up the title and labels
+        fig = plt.figure()
+        fig.suptitle(f"Min Training Loss: {min_loss}", fontsize=16)
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        # Plot the training loss data
+        plt.plot(train_loss, label="Training")
+        # Plot the testing loss data
+        plt.plot(validate_loss, label="Validation")
+        # Plot the minimum loss location
+        plt.plot(min_loss_epoch, min_loss, label="Min Loss", marker=".", markersize=20)
+        plt.legend()
+        # Save the plot image to disk
+        plt.savefig(plot_file_path)
+        # Clear the figure & axis for the next plot
+        plt.clf()
+        plt.cla()
+
+    def save_model(self, n_epochs):
         assert os.path.exists(self.results_path), f"Expected '{self.results_path}' to exist"
 
         # Create a path to the .pt file with the stats for this model in the name.
         # e.g. "[5, 5]-0.001-300-state_dict.pt"
         state_dict_file_path = os.path.join(self.results_path,
-                                            f"{self.model.n_hiddens_list}-{learning_rate}-{n_epochs}-state_dict.pt")
+                                            f"{self.model.n_hiddens_list}-{self.learning_rate}-{n_epochs}-state_dict.pt")
         # Save the state dictionary to disk
         torch.save(self.model.state_dict(), state_dict_file_path)
 
-    def train(self, learning_rate, n_epochs):
-        loss_func = nn.BCELoss()
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
+    def load_best_model(self):
+        # Load the state dictionary that produced the lowest loss during
+        # training back into the model so will use those weights and
+        # hopefully produce optimal results.
+        assert self.best_state_dict != None, "best_state_dict should be populated by now."
+        self.model.load_state_dict(self.best_state_dict)
 
+    # Called once per epoch
+    def train(self):
+        min_loss = float("inf")
+        loss = None
+        n_batches = 0
+        running_loss = 0.0
+        running_accuracy = 0.0
+        loss_list = []
+        accuracy_list = []
+
+        # Within each epoch process the training data in batches
         self.model.train()
-        train_loss = []
-        for epoch in range(n_epochs):
-            # Within each epoch run the subsets of data = batch sizes.
-            loss = None
-            for x_train_batch, y_train_batch in self.train_dataloader:
-                y_pred = self.model(x_train_batch)  # Forward Propagation
-                loss = loss_func(y_pred, y_train_batch)  # Loss Computation
-                optimizer.zero_grad()  # Clearing all previous gradients, setting to zero
-                loss.backward()  # Back Propagation
-                optimizer.step()  # Updating the parameters
-            # if epoch % math.ceil(n_epochs/10) == 0:
-            #     print(f"Loss in iteration {epoch} is: {loss.item()}")
-            train_loss.append(loss.item())
-        last_loss = train_loss[-1]
+        for x_train_batch, y_train_batch in self.train_dataloader:
+            n_batches += 1
+            self.optimizer.zero_grad()  # Clearing all previous gradients, setting to zero
+            y_pred = self.model(x_train_batch)  # Forward Propagation
+            loss = self.loss_func(y_pred, y_train_batch)  # Loss Computation
 
-        # plot the loss
-        self.plot_loss(train_loss, learning_rate, n_epochs)
-        return last_loss
+            # Keep a running tally of the loss in each batch from the data loader
+            loss_value = loss.item()
+            running_loss += loss_value
+            # Keep a running tally of the accuracy in each batch from the data loader
+            running_accuracy += accuracy_score(y_train_batch, torch.round(y_pred).detach().numpy())
 
-    def test(self):
+            # Adam has a tendency to produce spikes in the loss graph.
+            # To guard against the blip skewing the results, keep track
+            # of the lowest loss and the corresponding state dictionary.
+            # Once we have finished the training session, load the
+            # lowest state dict into self.model so those weights are
+            # used when test(...) is called
+            if loss_value < min_loss:
+                min_loss = loss_value
+                self.best_state_dict = copy.deepcopy(self.model.state_dict())
+
+            loss.backward()   # Back Propagation
+            self.optimizer.step()  # Updating the parameters
+
+        # Calculate the loss & accuracy for this epoch by taking the
+        # average of all the losses & accuracies respectively
+        epoch_loss = running_loss / n_batches
+        epoch_accuracy = running_accuracy / n_batches
+        # if epoch % math.ceil(n_epochs/10) == 0:
+        #     print(f"Loss in iteration {epoch} is: {epoch_loss}")
+        loss_list.append(epoch_loss)
+        accuracy_list.append(epoch_accuracy)
+
+        return (min_loss, loss_list, accuracy_list)
+
+    # Called once per epoch
+    def validate(self):
+        running_accuracy = 0.0
+        running_loss = 0.0
+        n_batches = 0
+        loss_list = []
+        accuracy_list = []
+
+        # Since we don't need the model to back propagate the gradients during
+        # validation use torch.no_grad() to reduce memory usage and speed up computation
         self.model.eval()
+        with torch.no_grad():
+            for x_validate_batch, y_validate_batch in self.validate_dataloader:
+                n_batches += 1
+                # Run x_validate_batch through the model
+                y_pred = torch.round(self.model(x_validate_batch))
+                y_pred_numpy = y_pred.detach().numpy()
+                # Keep a running tally of the loss & accuracy during validateing
+                running_loss += self.loss_func(y_pred, y_validate_batch).item()
+                running_accuracy += accuracy_score(y_validate_batch, y_pred_numpy)
+
+            # Calculate the loss & accuracy for this epoch by taking the
+            # average of all the losses & accuracies respectively
+            loss_list.append(running_loss / n_batches)
+            accuracy_list.append(running_accuracy / n_batches)
+
+        # return the results
+        return (loss_list, accuracy_list)
+
+    # Called after all the training & validation is complete
+    def test(self):
+        y_pred_list = []
+
         # Since we don't need the model to back propagate the gradients in test
         # use torch.no_grad() to reduce memory usage and speed up computation
-        y_pred_list = []
+        self.model.eval()
         with torch.no_grad():
             for x_test_batch, y_test_batch in self.test_dataloader:
-                y_pred_tag = torch.round(self.model(x_test_batch))
-                y_pred_list.append(y_pred_tag.detach().numpy())
+                y_pred = torch.round(self.model(x_test_batch))
+                y_pred_list.append(y_pred.detach().numpy())
 
         # Takes arrays and makes them list of list for each batch
         y_pred_list = [a.squeeze().tolist() for a in y_pred_list]
@@ -338,12 +459,44 @@ def main():
                                  + f"csv: '{csv_name}', hidden layers: {n_hidden_list}, epoch: {n_epochs}, learning rate: {learning_rate}"
                     print(header_str)
 
+                    train_loss_list, train_accuracy_list = [], []
+                    validate_loss_list, validate_accuracy_list = [], []
+                    min_loss = float("inf")
+                    min_loss_epoch = -1
+
                     # Start the model off fresh each run
-                    ds4_tran.build_model(n_hidden_list)
-                    # Kick off the training run
-                    loss = ds4_tran.train(learning_rate=learning_rate, n_epochs=n_epochs)
-                    # Test the newly trained model
+                    ds4_tran.build_model(n_hidden_list, learning_rate)
+                    for epoch in range(n_epochs):
+                        # Kick off the training run
+                        (epoch_min_loss, epoch_train_loss_list, epoch_train_accuracy_list) = ds4_tran.train()
+                        # Validate the training so far
+                        (epoch_validate_loss_list, epoch_validate_accuracy_list) = ds4_tran.validate()
+
+                        # Keep track of the losses & accuracies from each training & validation phase
+                        train_loss_list.append(epoch_train_loss_list)
+                        train_accuracy_list.append(epoch_train_accuracy_list)
+                        validate_loss_list.append(epoch_validate_loss_list)
+                        validate_accuracy_list.append(epoch_validate_accuracy_list)
+
+                        # Keep track of the minimum loss. It will correspond to the
+                        # final model state_dict when we are done.
+                        if epoch_min_loss < min_loss:
+                            min_loss = epoch_min_loss
+                            min_loss_epoch = epoch
+
+                    # We are done with the training & validation phases.
+                    # Plot there accuracies & losses
+                    ds4_tran.plot_accuracy(train_accuracy_list, validate_accuracy_list, n_epochs)
+                    ds4_tran.plot_loss(min_loss, min_loss_epoch, train_loss_list, validate_loss_list, n_epochs)
+
+                    # Load the best model that was generated during training in order
+                    # to (hopefully) produce the best testing results.
+                    ds4_tran.load_best_model()
+
+                    # Run the test phase with the newly trained model.
                     (conf_matrix, accuracy, precision, recall, f1) = ds4_tran.test()
+
+                    # Calculate the average of all the scores returned from test
                     avg_score = (accuracy + precision + recall + f1) / 4
                     # If the avg score is above a threshold then consider it a good run
                     if avg_score > 0.95:
@@ -353,7 +506,7 @@ def main():
                                       f"Precision:  {precision}\n" \
                                       f"Recall:     {recall}\n" \
                                       f"F1:         {f1}\n" \
-                                      f"Last Loss:  {loss}\n" \
+                                      f"Min Loss:   {min_loss}\n" \
                                       f"Confusion Matrix:\n{conf_matrix}"
                         print(metrics_str)
                         # Add the header to the metrics string to be written to disk later
@@ -361,10 +514,10 @@ def main():
                         # Keep track of high performing configurations
                         high_scores.append([avg_score, n_hidden_list, n_epochs, learning_rate])
                         high_scores_to_disk.append((avg_score, metrics_str))
-                        # Save the mode state dict to disk for later
-                        ds4_tran.save_state_dict(learning_rate, n_epochs)
+                        # Save the model to disk
+                        ds4_tran.save_model(n_epochs)
                     else:
-                        print(f"Avg score below threshold: {avg_score}, loss: {loss}")
+                        print(f"Avg score below threshold: {avg_score}, loss: {min_loss}")
 
         # Sort high_scores & high_scores_to_disk by avg_score in descending order
         def sort_func(high_score): return high_score[0]
