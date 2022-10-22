@@ -264,52 +264,51 @@ class PhishingDetector:
         plt.clf()
         plt.cla()
 
-    def plot_accuracy(self, train_accuracy, test_accuracy, n_epochs):
-        assert os.path.exists(self.results_path), f"Expected '{self.results_path}' to exist"
-
-        # Create a path to the .png file with the stats for this model in the name.
-        # e.g. "[5, 5]-0.001-300-accuracy.png"
-        plot_file_path = os.path.join(self.results_path,
-                                      f"{self.model.n_hiddens_list}-{self.learning_rate}-{n_epochs}-accuracy.png")
-        # Set up the title and labels
-        fig = plt.figure()
-        plt.xlabel('Epoch')
-        plt.ylabel('Accuracy %')
-        # Plot the training accuracy data
-        plt.plot(train_accuracy, label="Training")
-        # Plot the testing accuracy data
-        plt.plot(test_accuracy, label="Validation")
-        plt.legend()
-        # Save the plot image to disk
-        plt.savefig(plot_file_path)
+        # Plot the number of unique values in each numerical column
+        df_nuniques = self.df_data[numerical_col_names].nunique()
+        ax = df_nuniques.plot(kind='bar', fontsize=12)
+        ax.set_xlabel("Numerical Features", fontsize=14)
+        ax.set_ylabel("# Unique Values", fontsize=14)
+        plt.savefig(os.path.join(self.results_path, f"unique-numerical-features.png"))
         # Clear the figure & axis for the next plot
         plt.clf()
         plt.cla()
 
-    def plot_loss(self, min_loss, min_loss_epoch, train_loss, validate_loss, n_epochs):
+
+    def plot_results(self, accuracy, avg_score, train_accuracy, validate_accuracy, min_loss, min_loss_epoch, train_loss, validate_loss, n_epochs):
         assert os.path.exists(self.results_path), f"Expected '{self.results_path}' to exist"
 
+        # Set up a 1x2 grid of subplots
+        fig, (ax_left, ax_right) = plt.subplots(1, 2)
+        fig_size = fig.get_size_inches()
+        fig.set_figwidth(fig_size[0] * 2)
+        # Plot the training & validation accuracy data on the left
+        ax_left.plot(train_accuracy, label="Training")
+        ax_left.plot(validate_accuracy, label="Validation")
+        ax_left.set_title(f"Accuracy: {accuracy}, Avg Score: {avg_score:4f}")
+        ax_left.set(xlabel='Epoch', ylabel=f'Accuracy %')
+        ax_left.legend()
+
+        # Plot the training & validation loss data on the right
+        ax_right.plot(train_loss, label="Training")
+        ax_right.plot(validate_loss, label="Validation")
+        # Plot the minimum loss location in the graph
+        plt.plot(min_loss_epoch, min_loss, label="Loss", marker=".", markersize=20)
+        ax_right.set_title(f"Loss: {min_loss}")
+        ax_right.set(xlabel='Epoch', ylabel='Loss')
+        ax_right.legend()
+
         # Create a path to the .png file with the stats for this model in the name.
-        # e.g. "[5, 5]-0.001-300-loss.png"
+        # e.g. "[5, 5]-0.001-300-result.png"
         plot_file_path = os.path.join(self.results_path,
-                                      f"{self.model.n_hiddens_list}-{self.learning_rate}-{n_epochs}-loss.png")
-        # Set up the title and labels
-        fig = plt.figure()
-        fig.suptitle(f"Min Training Loss: {min_loss}", fontsize=16)
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        # Plot the training loss data
-        plt.plot(train_loss, label="Training")
-        # Plot the testing loss data
-        plt.plot(validate_loss, label="Validation")
-        # Plot the minimum loss location
-        plt.plot(min_loss_epoch, min_loss, label="Min Loss", marker=".", markersize=20)
-        plt.legend()
+                                      f"{self.model.n_hiddens_list}-{self.learning_rate}-{n_epochs}-results.png")
         # Save the plot image to disk
         plt.savefig(plot_file_path)
-        # Clear the figure & axis for the next plot
+        # Clear the figure & axis for the next plot since pyplot holds state
+        # instead of reusing figures etc.
         plt.clf()
         plt.cla()
+        plt.close(fig)
 
     def save_model(self, n_epochs):
         assert os.path.exists(self.results_path), f"Expected '{self.results_path}' to exist"
@@ -342,7 +341,6 @@ class PhishingDetector:
         self.model.train()
         for x_train_batch, y_train_batch in self.train_dataloader:
             n_batches += 1
-            self.optimizer.zero_grad()  # Clearing all previous gradients, setting to zero
             y_pred = self.model(x_train_batch)  # Forward Propagation
             loss = self.loss_func(y_pred, y_train_batch)  # Loss Computation
 
@@ -362,8 +360,9 @@ class PhishingDetector:
                 min_loss = loss_value
                 self.best_state_dict = copy.deepcopy(self.model.state_dict())
 
-            loss.backward()   # Back Propagation
-            self.optimizer.step()  # Updating the parameters
+            self.optimizer.zero_grad()  # Clearing all previous gradients, setting to zero
+            loss.backward()             # Back Propagation
+            self.optimizer.step()       # Updating the parameters
 
         # Calculate the loss & accuracy for this epoch by taking the
         # average of all the losses & accuracies respectively
@@ -442,7 +441,6 @@ def main():
                       [100, 150], [150, 100],
                       [100, 300], [300, 100],
                       [200, 300], [300, 200],
-                      [100, 300], [300, 100],
                       [400, 500], [500, 400],
                       [800, 600], [600, 800],
                       [100, 200, 50], [50, 200, 100],
@@ -454,6 +452,8 @@ def main():
         for n_hidden_list in n_hidden_lists:
             for learning_rate in learning_rate_list:
                 for n_epochs in n_epoch_list:
+                    # Close any pyplot figures that may still be open from prevous epochs
+                    plt.close('all')
 
                     header_str = "\n****************************************\n" \
                                  + f"csv: '{csv_name}', hidden layers: {n_hidden_list}, epoch: {n_epochs}, learning rate: {learning_rate}"
@@ -484,22 +484,25 @@ def main():
                             min_loss = epoch_min_loss
                             min_loss_epoch = epoch
 
-                    # We are done with the training & validation phases.
-                    # Plot there accuracies & losses
-                    ds4_tran.plot_accuracy(train_accuracy_list, validate_accuracy_list, n_epochs)
-                    ds4_tran.plot_loss(min_loss, min_loss_epoch, train_loss_list, validate_loss_list, n_epochs)
-
                     # Load the best model that was generated during training in order
                     # to (hopefully) produce the best testing results.
                     ds4_tran.load_best_model()
 
                     # Run the test phase with the newly trained model.
                     (conf_matrix, accuracy, precision, recall, f1) = ds4_tran.test()
-
                     # Calculate the average of all the scores returned from test
                     avg_score = (accuracy + precision + recall + f1) / 4
+
+                    # We are done with the training & validation phases.
+                    # Plot there accuracies & losses
+                    # We are done. Plot the results
+                    ds4_tran.plot_results(accuracy, avg_score,
+                                          train_accuracy_list, validate_accuracy_list,
+                                          min_loss, min_loss_epoch,
+                                          train_loss_list, validate_loss_list, n_epochs)
+
                     # If the avg score is above a threshold then consider it a good run
-                    if avg_score > 0.95:
+                    if avg_score > 0.97:
                         # Build & print the metrics string
                         metrics_str = f"Avg Score:  {avg_score}\n" \
                                       f"Accuracy:   {accuracy}\n" \
