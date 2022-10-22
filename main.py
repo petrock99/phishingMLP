@@ -31,7 +31,7 @@ import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 kLabelColumn = 'Label'
-
+kHighScoreThreshold = 0.97
 
 class BinaryMLPModel(nn.Module):
     def __init__(self, n_inputs, n_hiddens_list):
@@ -492,17 +492,8 @@ def main():
                     (conf_matrix, accuracy, precision, recall, f1) = ds4_tran.test()
                     # Calculate the average of all the scores returned from test
                     avg_score = (accuracy + precision + recall + f1) / 4
-
-                    # We are done with the training & validation phases.
-                    # Plot there accuracies & losses
-                    # We are done. Plot the results
-                    ds4_tran.plot_results(accuracy, avg_score,
-                                          train_accuracy_list, validate_accuracy_list,
-                                          min_loss, min_loss_epoch,
-                                          train_loss_list, validate_loss_list, n_epochs)
-
                     # If the avg score is above a threshold then consider it a good run
-                    if avg_score > 0.97:
+                    if avg_score > kHighScoreThreshold:
                         # Build & print the metrics string
                         metrics_str = f"Avg Score:  {avg_score}\n" \
                                       f"Accuracy:   {accuracy}\n" \
@@ -519,6 +510,11 @@ def main():
                         high_scores_to_disk.append((avg_score, metrics_str))
                         # Save the model to disk
                         ds4_tran.save_model(n_epochs)
+                        # Plot there accuracies & losses
+                        ds4_tran.plot_results(accuracy, avg_score,
+                                              train_accuracy_list, validate_accuracy_list,
+                                              min_loss, min_loss_epoch,
+                                              train_loss_list, validate_loss_list, n_epochs)
                     else:
                         print(f"Avg score below threshold: {avg_score}, loss: {min_loss}")
 
