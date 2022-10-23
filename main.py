@@ -31,7 +31,8 @@ import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 kLabelColumn = 'Label'
-kHighScoreThreshold = 0.97
+kHighScoreThreshold = 0.965
+kBatchSize = 64
 
 class BinaryMLPModel(nn.Module):
     def __init__(self, n_inputs, n_hiddens_list):
@@ -164,10 +165,11 @@ class PhishingDetector:
         x = df_data.loc[:, df_data.columns != kLabelColumn]     # Don't include 'Label'
         y = df_data[kLabelColumn]
 
-        # Set up a 60/20/20 split for training/validating/testing
+        # Set up a 70/15/15 split for training/validating/testing
         # Will randomize the entries.
-        x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42)
-        x_train, x_validate, y_train, y_validate = train_test_split(x_train, y_train, test_size=0.25, random_state=42)
+        x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.15, random_state=42)
+        validation_size_ratio = len(x_test) / len(x_train)
+        x_train, x_validate, y_train, y_validate = train_test_split(x_train, y_train, test_size=validation_size_ratio, random_state=42)
         assert len(x_test) == len(x_validate), "Expected x_validate & x_test to be the same size"
         # print(f"\n--Data Split--\n" \
         #       f"Training: {x_train.shape}\n"
@@ -199,19 +201,19 @@ class PhishingDetector:
         # create a DataLoader from it.
         y_train_tensor = y_train_tensor.unsqueeze(1)
         train_dataset = TensorDataset(x_train_tensor, y_train_tensor)
-        train_dataloader = DataLoader(train_dataset, batch_size=64)
+        train_dataloader = DataLoader(train_dataset, batch_size=kBatchSize)
 
         # Stuff x_validate_tensor, y_validate_tensor into a TensorDataset and
         # create a DataLoader from it.
         y_validate_tensor = y_validate_tensor.unsqueeze(1)
         validate_dataset = TensorDataset(x_validate_tensor, y_validate_tensor)
-        validate_dataloader = DataLoader(validate_dataset, batch_size=32)
+        validate_dataloader = DataLoader(validate_dataset, batch_size=kBatchSize)
 
         # Stuff x_test_tensor, y_test_tensor into a TensorDataset and
         # create a DataLoader from it.
         y_test_tensor = y_test_tensor.unsqueeze(1)
         test_dataset = TensorDataset(x_test_tensor, y_test_tensor)
-        test_dataloader = DataLoader(test_dataset, batch_size=32)
+        test_dataloader = DataLoader(test_dataset, batch_size=kBatchSize)
 
         return (x_train_tensor, y_train_tensor,
                 x_validate_tensor, y_validate_tensor,
@@ -275,26 +277,33 @@ class PhishingDetector:
         plt.cla()
 
 
-    def plot_results(self, accuracy, avg_score, train_accuracy, validate_accuracy, min_loss, min_loss_epoch, train_loss, validate_loss, n_epochs):
+    def plot_results(self, test_accuracy, avg_test_score,
+                     min_validate_loss, min_validate_loss_epoch,
+                     max_validate_accuracy, max_validate_accuracy_epoch,
+                     train_accuracy_list, validate_accuracy_list,
+                     train_loss_list, validate_loss_list, n_epochs):
         assert os.path.exists(self.results_path), f"Expected '{self.results_path}' to exist"
 
         # Set up a 1x2 grid of subplots
         fig, (ax_left, ax_right) = plt.subplots(1, 2)
         fig_size = fig.get_size_inches()
         fig.set_figwidth(fig_size[0] * 2)
+
         # Plot the training & validation accuracy data on the left
-        ax_left.plot(train_accuracy, label="Training")
-        ax_left.plot(validate_accuracy, label="Validation")
-        ax_left.set_title(f"Accuracy: {accuracy}, Avg Score: {avg_score:4f}")
+        ax_left.plot(train_accuracy_list, label="Training")
+        ax_left.plot(validate_accuracy_list, label="Validation")
+        # Plot the max accuracy location in the graph
+        ax_left.plot(max_validate_accuracy_epoch, max_validate_accuracy, label="Max Val Acc", marker=".", markersize=10)
+        ax_left.set_title(f"Test Acc: {test_accuracy:4f}, Max Val Acc: {max_validate_accuracy:4f}, Avg Score: {avg_test_score:4f}")
         ax_left.set(xlabel='Epoch', ylabel=f'Accuracy %')
         ax_left.legend()
 
         # Plot the training & validation loss data on the right
-        ax_right.plot(train_loss, label="Training")
-        ax_right.plot(validate_loss, label="Validation")
+        ax_right.plot(train_loss_list, label="Training")
+        ax_right.plot(validate_loss_list, label="Validation")
         # Plot the minimum loss location in the graph
-        plt.plot(min_loss_epoch, min_loss, label="Loss", marker=".", markersize=20)
-        ax_right.set_title(f"Loss: {min_loss}")
+        ax_right.plot(min_validate_loss_epoch, min_validate_loss, label="Min Val Loss", marker=".", markersize=10)
+        ax_right.set_title(f"Min Val Loss: {min_validate_loss}")
         ax_right.set(xlabel='Epoch', ylabel='Loss')
         ax_right.legend()
 
@@ -327,15 +336,14 @@ class PhishingDetector:
         assert self.best_state_dict != None, "best_state_dict should be populated by now."
         self.model.load_state_dict(self.best_state_dict)
 
+    def save_best_model(self):
+        self.best_state_dict = copy.deepcopy(self.model.state_dict())
+
     # Called once per epoch
     def train(self):
-        min_loss = float("inf")
-        loss = None
         n_batches = 0
         running_loss = 0.0
         running_accuracy = 0.0
-        loss_list = []
-        accuracy_list = []
 
         # Within each epoch process the training data in batches
         self.model.train()
@@ -350,38 +358,21 @@ class PhishingDetector:
             # Keep a running tally of the accuracy in each batch from the data loader
             running_accuracy += accuracy_score(y_train_batch, torch.round(y_pred).detach().numpy())
 
-            # Adam has a tendency to produce spikes in the loss graph.
-            # To guard against the blip skewing the results, keep track
-            # of the lowest loss and the corresponding state dictionary.
-            # Once we have finished the training session, load the
-            # lowest state dict into self.model so those weights are
-            # used when test(...) is called
-            if loss_value < min_loss:
-                min_loss = loss_value
-                self.best_state_dict = copy.deepcopy(self.model.state_dict())
-
             self.optimizer.zero_grad()  # Clearing all previous gradients, setting to zero
             loss.backward()             # Back Propagation
             self.optimizer.step()       # Updating the parameters
 
-        # Calculate the loss & accuracy for this epoch by taking the
-        # average of all the losses & accuracies respectively
-        epoch_loss = running_loss / n_batches
-        epoch_accuracy = running_accuracy / n_batches
-        # if epoch % math.ceil(n_epochs/10) == 0:
-        #     print(f"Loss in iteration {epoch} is: {epoch_loss}")
-        loss_list.append(epoch_loss)
-        accuracy_list.append(epoch_accuracy)
-
-        return (min_loss, loss_list, accuracy_list)
+        # Calculate the loss & accuracy for this epoch by taking the average of all
+        # the losses & accuracies respectively from all the batches
+        loss = running_loss / n_batches
+        accuracy = running_accuracy / n_batches
+        return (loss, accuracy)
 
     # Called once per epoch
     def validate(self):
         running_accuracy = 0.0
         running_loss = 0.0
         n_batches = 0
-        loss_list = []
-        accuracy_list = []
 
         # Since we don't need the model to back propagate the gradients during
         # validation use torch.no_grad() to reduce memory usage and speed up computation
@@ -396,13 +387,11 @@ class PhishingDetector:
                 running_loss += self.loss_func(y_pred, y_validate_batch).item()
                 running_accuracy += accuracy_score(y_validate_batch, y_pred_numpy)
 
-            # Calculate the loss & accuracy for this epoch by taking the
-            # average of all the losses & accuracies respectively
-            loss_list.append(running_loss / n_batches)
-            accuracy_list.append(running_accuracy / n_batches)
-
-        # return the results
-        return (loss_list, accuracy_list)
+        # Calculate the loss & accuracy for this epoch by taking the average of all
+        # the losses & accuracies respectively from all the batches
+        loss = running_loss / n_batches
+        accuracy = running_accuracy / n_batches
+        return (loss, accuracy)
 
     # Called after all the training & validation is complete
     def test(self):
@@ -461,64 +450,75 @@ def main():
 
                     train_loss_list, train_accuracy_list = [], []
                     validate_loss_list, validate_accuracy_list = [], []
-                    min_loss = float("inf")
-                    min_loss_epoch = -1
+                    min_validate_loss = float("inf")
+                    min_validate_loss_epoch = -1
+                    max_validate_accuracy = 0
+                    max_validate_accuracy_epoch = -1
 
                     # Start the model off fresh each run
                     ds4_tran.build_model(n_hidden_list, learning_rate)
                     for epoch in range(n_epochs):
-                        # Kick off the training run
-                        (epoch_min_loss, epoch_train_loss_list, epoch_train_accuracy_list) = ds4_tran.train()
+                        # Kick off the training run for this epoch
+                        (train_loss, train_accuracy) = ds4_tran.train()
                         # Validate the training so far
-                        (epoch_validate_loss_list, epoch_validate_accuracy_list) = ds4_tran.validate()
+                        (validate_loss, validate_accuracy) = ds4_tran.validate()
 
                         # Keep track of the losses & accuracies from each training & validation phase
-                        train_loss_list.append(epoch_train_loss_list)
-                        train_accuracy_list.append(epoch_train_accuracy_list)
-                        validate_loss_list.append(epoch_validate_loss_list)
-                        validate_accuracy_list.append(epoch_validate_accuracy_list)
+                        train_loss_list.append(train_loss)
+                        train_accuracy_list.append(train_accuracy)
+                        validate_loss_list.append(validate_loss)
+                        validate_accuracy_list.append(validate_accuracy)
 
-                        # Keep track of the minimum loss. It will correspond to the
-                        # final model state_dict when we are done.
-                        if epoch_min_loss < min_loss:
-                            min_loss = epoch_min_loss
-                            min_loss_epoch = epoch
+                        # Keep track of the max accuracy during validation, and its corresponding
+                        # model state dictionary. It will be loaded back into the model for testing.
+                        if max_validate_accuracy < validate_accuracy:
+                            max_validate_accuracy = validate_accuracy
+                            max_validate_accuracy_epoch = epoch
+                            ds4_tran.save_best_model()
+
+                        # Keep track of the minimum loss during validation for plotting purposes
+                        if validate_loss < min_validate_loss:
+                            min_validate_loss = validate_loss
+                            min_validate_loss_epoch = epoch
 
                     # Load the best model that was generated during training in order
                     # to (hopefully) produce the best testing results.
                     ds4_tran.load_best_model()
 
                     # Run the test phase with the newly trained model.
-                    (conf_matrix, accuracy, precision, recall, f1) = ds4_tran.test()
+                    (test_conf_matrix, test_accuracy, test_precision, test_recall, test_f1) = ds4_tran.test()
                     # Calculate the average of all the scores returned from test
-                    avg_score = (accuracy + precision + recall + f1) / 4
+                    avg_test_score = (test_accuracy + test_precision + test_recall + test_f1) / 4
+
+                    # Plot there accuracies & losses
+                    ds4_tran.plot_results(test_accuracy, avg_test_score,
+                                          min_validate_loss, min_validate_loss_epoch,
+                                          max_validate_accuracy, max_validate_accuracy_epoch,
+                                          train_accuracy_list, validate_accuracy_list,
+                                          train_loss_list, validate_loss_list, n_epochs)
+
                     # If the avg score is above a threshold then consider it a good run
-                    if avg_score > kHighScoreThreshold:
+                    if avg_test_score > kHighScoreThreshold:
                         # Build & print the metrics string
-                        metrics_str = f"Avg Score:  {avg_score}\n" \
-                                      f"Accuracy:   {accuracy}\n" \
-                                      f"Precision:  {precision}\n" \
-                                      f"Recall:     {recall}\n" \
-                                      f"F1:         {f1}\n" \
-                                      f"Min Loss:   {min_loss}\n" \
-                                      f"Confusion Matrix:\n{conf_matrix}"
+                        metrics_str = f"Avg Score:      {avg_test_score}\n" \
+                                      f"Accuracy:       {test_accuracy}\n" \
+                                      f"Precision:      {test_precision}\n" \
+                                      f"Recall:         {test_recall}\n" \
+                                      f"F1:             {test_f1}\n" \
+                                      f"Max Val Acc:    {max_validate_accuracy}\n" \
+                                      f"Confusion Matrix:\n{test_conf_matrix}"
                         print(metrics_str)
                         # Add the header to the metrics string to be written to disk later
                         metrics_str = f"{header_str}\n{metrics_str}"
                         # Keep track of high performing configurations
-                        high_scores.append([avg_score, n_hidden_list, n_epochs, learning_rate])
-                        high_scores_to_disk.append((avg_score, metrics_str))
+                        high_scores.append([avg_test_score, n_hidden_list, n_epochs, learning_rate])
+                        high_scores_to_disk.append((avg_test_score, metrics_str))
                         # Save the model to disk
                         ds4_tran.save_model(n_epochs)
-                        # Plot there accuracies & losses
-                        ds4_tran.plot_results(accuracy, avg_score,
-                                              train_accuracy_list, validate_accuracy_list,
-                                              min_loss, min_loss_epoch,
-                                              train_loss_list, validate_loss_list, n_epochs)
                     else:
-                        print(f"Avg score below threshold: {avg_score}, loss: {min_loss}")
+                        print(f"Avg score below threshold: {avg_test_score}, max acc: {max_validate_accuracy}")
 
-        # Sort high_scores & high_scores_to_disk by avg_score in descending order
+        # Sort high_scores & high_scores_to_disk by avg_test_score in descending order
         def sort_func(high_score): return high_score[0]
         high_scores.sort(reverse=True, key=sort_func)
         high_scores_to_disk.sort(reverse=True, key=sort_func)
