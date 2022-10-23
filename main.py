@@ -96,6 +96,7 @@ class PhishingDetector:
 
         # Load the .csv from disk
         self.df_data = self.load_data(csv_name)
+        print(f"Data Shape: {self.df_data.shape}")
 
         # Build the train, validate & test data sets & loaders
         (self.x_train_tensor, self.y_train_tensor,
@@ -576,6 +577,7 @@ def main():
         # Save high_scores to disk for reference later
         high_scores_path = os.path.join(ds4_tran.results_path, "high_scores.txt")
         with open(high_scores_path, 'w') as fp:
+            fp.write(f"Data Shape: {ds4_tran.model.df_data.shape}\n")
             fp.write(f"High Scores from '{csv_name}' in Descending Order\n")
             [fp.write(f"{i}\n") for _, i in high_scores_to_disk]
 
