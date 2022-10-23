@@ -156,6 +156,30 @@ class PhishingDetector:
 
         # Remove any rows containing at least one null value
         df_data.dropna(inplace=True)
+
+        # Remove columns with the same value in all of its row
+        nunique = df_data.nunique()
+        cols_to_drop = nunique[nunique == 1].index
+        df_data.drop(columns=cols_to_drop, inplace=True)
+
+        # Remove any duplicate rows
+        df_data.drop_duplicates(inplace=True)
+
+        # # Remove categorical columns containing the same value in 95% or more of its rows
+        # # [TODO] There has got to be a simpler and/or built in way to do this
+        # def is_col_to_drop(col):
+        #     n_rows = df_data.shape[0]
+        #     value_counts = df_data[col].value_counts()
+        #     for value in value_counts.keys():
+        #         if value_counts[value] / n_rows >= .95:
+        #             return True
+        #     return False
+        # cols_to_drop = [col for col in df_data.keys() if col != kLabelColumn and is_col_to_drop(col)]
+        # df_data.drop(columns=cols_to_drop, inplace=True)
+        #
+        # # Removing columns could produce duplicate rows, so remove any duplicates (again)
+        # df_data.drop_duplicates(inplace=True)
+
         # print(df_data.shape)
         return df_data
 
@@ -224,10 +248,12 @@ class PhishingDetector:
     def plot_data(self):
 
         def correlation_plot(df_data, title, filename):
+            fig, ax = plt.subplots(figsize=(8, 8))
             corr = df_data.corr()
             mask = np.triu(np.ones_like(corr, dtype=bool))
-            sns.heatmap(corr, mask=mask, cmap='BuPu', robust=True, center=0, square=True, linewidths=.5)
+            sns.heatmap(corr, mask=mask, cmap='BuPu', robust=True, center=0, square=True, linewidths=.5, ax=ax)
             plt.title(title, fontsize=15, font="Serif")
+            plt.tight_layout()
             plt.savefig(os.path.join(self.results_path, filename))
             # Clear the figure & axis for the next plot
             plt.clf()
@@ -258,20 +284,38 @@ class PhishingDetector:
         df_distr = df_distr[1:-3][['Phishing', 'Legitimate']]
         plt.rcParams['axes.facecolor'] = 'w'
         ax = df_distr.plot(kind='bar', title=f"Distribution of Average Numerical Values Across {kLabelColumn}",
-                           figsize=(12, 8), legend=True, fontsize=12)
+                           figsize=(8, 8), legend=True, fontsize=12)
         ax.set_xlabel("Numerical Features", fontsize=14)
         ax.set_ylabel("Average Values", fontsize=14)
-        plt.savefig(os.path.join(self.results_path, f"distribution-numerical-features.png"))
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.results_path, f"avg-distribution-numerical-features.png"))
         # Clear the figure & axis for the next plot
         plt.clf()
         plt.cla()
 
-        # Plot the number of unique values in each numerical column
-        df_nuniques = self.df_data[numerical_col_names].nunique()
-        ax = df_nuniques.plot(kind='bar', fontsize=12)
-        ax.set_xlabel("Numerical Features", fontsize=14)
-        ax.set_ylabel("# Unique Values", fontsize=14)
-        plt.savefig(os.path.join(self.results_path, f"unique-numerical-features.png"))
+        # Plot the number of unique values in each numerical column, grouped by label
+        df_nuniques = self.df_data.groupby(kLabelColumn)[numerical_col_names].nunique().reset_index().T
+        df_nuniques.rename(columns={0: 'Phishing', 1: "Legitimate"}, inplace=True)
+        df_nuniques = df_nuniques[1:-3][['Phishing', 'Legitimate']]
+        ax = df_nuniques.plot(kind='bar', title=f"Distribution of Unique Numerical Values Across {kLabelColumn}",
+                              legend=True, figsize=(8, 8), fontsize=12)
+        ax.set_xlabel("Numerical Features")
+        ax.set_ylabel("# Unique Values")
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.results_path, f"distribution-unique-numerical-features.png"))
+        # Clear the figure & axis for the next plot
+        plt.clf()
+        plt.cla()
+
+        # Plot the number of each unique value in each categorical column
+        categorical_col_names = [col for col in self.df_data.keys() if not is_numerical(col) and col != kLabelColumn]
+        df_categorical = self.df_data[categorical_col_names].apply(pd.value_counts).T
+        ax = df_categorical.plot(kind='bar', title=f"Distribution of Categorical Values",
+                                 legend=True, figsize=(10, 8), fontsize=12)
+        ax.set_xlabel("Categorical Features")
+        ax.set_ylabel("# Values")
+        plt.tight_layout()
+        plt.savefig(os.path.join(self.results_path, f"distribution-categorical-features.png"))
         # Clear the figure & axis for the next plot
         plt.clf()
         plt.cla()
@@ -311,6 +355,7 @@ class PhishingDetector:
         # e.g. "[5, 5]-0.001-300-result.png"
         plot_file_path = os.path.join(self.results_path,
                                       f"{self.model.n_hiddens_list}-{self.learning_rate}-{n_epochs}-results.png")
+        plt.tight_layout()
         # Save the plot image to disk
         plt.savefig(plot_file_path)
         # Clear the figure & axis for the next plot since pyplot holds state
@@ -441,7 +486,7 @@ def main():
         for n_hidden_list in n_hidden_lists:
             for learning_rate in learning_rate_list:
                 for n_epochs in n_epoch_list:
-                    # Close any pyplot figures that may still be open from prevous epochs
+                    # Close any pyplot figures that may still be open from previous epochs
                     plt.close('all')
 
                     header_str = "\n****************************************\n" \
