@@ -189,9 +189,6 @@ class PhishingDetector:
             # Remove columns with the same value in all of its rows
             nunique = df_data.nunique()
             cols_to_drop = nunique[nunique == 1].index
-            df_data.drop(columns=cols_to_drop, inplace=True)
-            # also remove these columns from df_dupes
-            df_dupes.drop(columns=cols_to_drop, inplace=True)
 
         # Remove the offending column from df_data & df_dupes
         df_data.drop(columns=cols_to_drop, inplace=True)
