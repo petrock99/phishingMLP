@@ -44,7 +44,7 @@ def tensor_size_pretty_str(size):
     return f"({size[0]}, {size[1]})"
 
 class BinaryMLPModel(nn.Module):
-    def __init__(self, n_inputs, n_hiddens_list):
+    def __init__(self, n_inputs, n_hiddens_list, use_gpu=torch.cuda.is_available()):
         assert isinstance(n_hiddens_list, list), "n_hiddens_list must be a list or tuple"
 
         super(BinaryMLPModel, self).__init__()
@@ -72,9 +72,7 @@ class BinaryMLPModel(nn.Module):
         self.dropout = nn.Dropout(p=0.1)
 
         # Use the GPU if it supports CUDA, otherwise use the CPU
-        use_gpu = torch.cuda.is_available()
-        self.device = 'cuda' if use_gpu else 'cpu'
-        self.to(self.device)
+        self.to('cuda' if use_gpu else 'cpu')
 
     def forward(self, inputs):
         x = inputs
@@ -232,7 +230,9 @@ class PhishingDetector:
         return df_data
 
     @staticmethod
-    def split_data(df_data):
+    def split_data(df_data, use_gpu=torch.cuda.is_available()):
+        device = 'cuda' if use_gpu else 'cpu'
+
         # Extract the raw data and label from df_data
         x = df_data.loc[:, df_data.columns != kLabelColumn]     # Don't include 'Label'
         y = df_data[kLabelColumn]
@@ -255,12 +255,12 @@ class PhishingDetector:
         #       f"Scaled values of Testing set\n{x_test}\n")
 
         # Convert the Train, Validate and Test sets into Tensors
-        x_train_tensor = torch.from_numpy(x_train).float()
-        y_train_tensor = torch.from_numpy(y_train.values.ravel()).float()
-        x_validate_tensor = torch.from_numpy(x_validate).float()
-        y_validate_tensor = torch.from_numpy(y_validate.values.ravel()).float()
-        x_test_tensor = torch.from_numpy(x_test).float()
-        y_test_tensor = torch.from_numpy(y_test.values.ravel()).float()
+        x_train_tensor = torch.from_numpy(x_train).float().to(device)
+        y_train_tensor = torch.from_numpy(y_train.values.ravel()).float().to(device)
+        x_validate_tensor = torch.from_numpy(x_validate).float().to(device)
+        y_validate_tensor = torch.from_numpy(y_validate.values.ravel()).float().to(device)
+        x_test_tensor = torch.from_numpy(x_test).float().to(device)
+        y_test_tensor = torch.from_numpy(y_test.values.ravel()).float().to(device)
         # print(f"Training set Tensors\n{x_train_tensor}\n{y_train_tensor}\n" \
         #       f"Validation set Tensors\n{x_validate_tensor}\n{y_validate_tensor}\n" \
         #       f"\nTesting set Tensors\n{x_test_tensor}\n{y_test_tensor}")
@@ -454,7 +454,8 @@ class PhishingDetector:
             # Keep a running tally of the loss & accuracy in each batch from the data loader
             loss_value = loss.item()
             running_loss += loss_value
-            running_accuracy += accuracy_score(y_train_batch, torch.round(y_pred).detach().numpy())
+            running_accuracy += accuracy_score(y_train_batch.cpu().detach().numpy(),
+                                               torch.round(y_pred).cpu().detach().numpy())
 
             self.optimizer.zero_grad()  # Clearing all previous gradients, setting to zero
             loss.backward()             # Back Propagation
@@ -484,10 +485,10 @@ class PhishingDetector:
                 n_batches += 1
                 # Run x_validate_batch through the model
                 y_pred = torch.round(self.model(x_validate_batch))
-                y_pred_numpy = y_pred.detach().numpy()
                 # Keep a running tally of the loss & accuracy during validation
                 running_loss += self.loss_func(y_pred, y_validate_batch).item()
-                running_accuracy += accuracy_score(y_validate_batch, y_pred_numpy)
+                running_accuracy += accuracy_score(y_validate_batch.cpu().detach().numpy(),
+                                                   y_pred.cpu().detach().numpy())
 
         # Calculate the loss & accuracy for this epoch by taking the average of all
         # the losses & accuracies respectively from all the batches
@@ -509,7 +510,7 @@ class PhishingDetector:
         with torch.no_grad():
             for x_test_batch, y_test_batch in self.test_dataloader:
                 y_pred = torch.round(self.model(x_test_batch))
-                y_pred_list.append(y_pred.detach().numpy())
+                y_pred_list.append(y_pred.cpu().detach().numpy())
 
         # Takes arrays and makes them list of list for each batch
         y_pred_list = [a.squeeze().tolist() for a in y_pred_list]
