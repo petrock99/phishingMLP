@@ -4,6 +4,7 @@
 # Press Double ⇧ to search everywhere for classes, files, tool windows, actions, and settings.
 
 import copy
+from datetime import timedelta
 import itertools
 import os
 import math
@@ -33,6 +34,13 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 kLabelColumn = 'Label'
 kHighScoreThreshold = 0.965
 kBatchSize = 64
+kTestDataRatio = 0.15
+
+# Tensor.shape returns a Tensor.Size, which  prints a list of values. e.g. [x, y].
+# numpy.shape & pd.DataFrame.shape return a tuple. e.g. (x, y).
+# Mimic the tuple printing with a Tensor.Size.
+def tensor_size_pretty_str(size):
+    return f"({size[0]}, {size[1]})"
 
 class BinaryMLPModel(nn.Module):
     def __init__(self, n_inputs, n_hiddens_list):
@@ -94,17 +102,6 @@ class PhishingDetector:
         self.loss_func = nn.BCELoss()   # Binary Cross Entropy
         self.best_state_dict = {}
 
-        # Load the .csv from disk
-        self.df_data = self.load_data(csv_name)
-        print(f"Data Shape: {self.df_data.shape}")
-
-        # Build the train, validate & test data sets & loaders
-        (self.x_train_tensor, self.y_train_tensor,
-         self.x_validate_tensor, self.y_validate_tensor,
-         self.x_test_tensor, self.y_test_tensor,
-         self.train_dataloader, self.validate_dataloader,
-         self.test_dataloader, self.y_test) = self.split_data(self.df_data)
-
         # Build a path to save the results into. Include the date/time
         # to make differentiating runs easier, and to semi-guarantee
         # a unique name within the 'results' directory.
@@ -113,6 +110,18 @@ class PhishingDetector:
         # Create the results folder
         os.makedirs(self.results_path)
         print(f"Saving results to '{os.path.abspath(self.results_path)}'")
+
+        # Load the .csv from disk
+        self.df_data = self.load_data(self.results_path, csv_name)
+
+        # Build the train, validate & test data sets & loaders
+        (self.x_train_tensor, self.y_train_tensor,
+         self.x_validate_tensor, self.y_validate_tensor,
+         self.x_test_tensor, self.y_test_tensor,
+         self.train_dataloader, self.validate_dataloader,
+         self.test_dataloader, self.y_test) = self.split_data(self.df_data)
+
+        print(self.data_split_str())
 
         # plot stats about the data
         self.plot_data()
@@ -134,7 +143,7 @@ class PhishingDetector:
         # print(self.model)
 
     @staticmethod
-    def load_data(csv_name):
+    def load_data(results_path, csv_name):
         # Extract the .csv if it hasn't been already
         datasets_path = "./datasets"
         csv_path = os.path.join(datasets_path, csv_name)
@@ -158,28 +167,64 @@ class PhishingDetector:
         # Remove any rows containing at least one null value
         df_data.dropna(inplace=True)
 
-        # Remove columns with the same value in all of its row
-        nunique = df_data.nunique()
-        cols_to_drop = nunique[nunique == 1].index
-        df_data.drop(columns=cols_to_drop, inplace=True)
+        # Get the list of dupes that are about to be removed
+        df_all_dupes = df_data[df_data.duplicated()].copy()
 
         # Remove any duplicate rows
         df_data.drop_duplicates(inplace=True)
 
-        # # Remove categorical columns containing the same value in 95% or more of its rows
-        # # [TODO] There has got to be a simpler and/or built in way to do this
-        # def is_col_to_drop(col):
-        #     n_rows = df_data.shape[0]
-        #     value_counts = df_data[col].value_counts()
-        #     for value in value_counts.keys():
-        #         if value_counts[value] / n_rows >= .95:
-        #             return True
-        #     return False
-        # cols_to_drop = [col for col in df_data.keys() if col != kLabelColumn and is_col_to_drop(col)]
-        # df_data.drop(columns=cols_to_drop, inplace=True)
-        #
-        # # Removing columns could produce duplicate rows, so remove any duplicates (again)
-        # df_data.drop_duplicates(inplace=True)
+        # Remove columns with the same value in all of its row
+        nunique = df_data.nunique()
+        cols_to_drop = nunique[nunique == 1].index
+        df_data.drop(columns=cols_to_drop, inplace=True)
+        # also remove these columns from df_dupes
+        df_all_dupes.drop(columns=cols_to_drop, inplace=True)
+
+        # Remove categorical columns containing the same value in 95% or more of its rows
+        # [TODO] There has got to be a simpler and/or built in way to do this
+        def is_col_to_drop(col):
+            n_rows = df_data.shape[0]
+            value_counts = df_data[col].value_counts()
+            for value in value_counts.keys():
+                if value_counts[value] / n_rows >= .95:
+                    return True
+            return False
+        cols_to_drop = [col for col in df_data.keys() if col != kLabelColumn and is_col_to_drop(col)]
+        df_data.drop(columns=cols_to_drop, inplace=True)
+
+        # Append the remaining list of dupes, if any, that are about to be removed
+        pd.concat([df_all_dupes, df_data[df_data.duplicated()]])
+        # Write all of the dupes to disk
+        df_all_dupes.to_csv(os.path.join(results_path, f"{os.path.splitext(csv_name)[0]}_all_dupes.csv"))
+
+        # Removing columns could produce duplicate rows, so remove any duplicates (again)
+        df_data.drop_duplicates(inplace=True)
+
+        # Make sure that the number of legitimate & phishing rows are balanced
+        # Removing dupes make have created an imbalance, or it could have been
+        # imbalanced from the .csv.
+        label_counts = df_data[kLabelColumn].value_counts()
+        # Calculate the number of rows to remove, if any
+        n_rows_to_remove = label_counts[1] - label_counts[0]
+        if n_rows_to_remove != 0:
+            # Get a list of rows matching the label with more rows than the other.
+            # 'n_rows_to_remove < 0' remove phishing rows, otherwise remove legitimate rows
+            matched_row_indexes = df_data[df_data[kLabelColumn] == (1 if n_rows_to_remove > 0 else 0)].index
+            assert len(matched_row_indexes) >= n_rows_to_remove, f"Trying to remove more rows than available.\n" \
+                                                                 f"# to remove: {n_rows_to_remove}, # available: {len(matched_row_indexes)}"
+            # Remove the last 'n_rows_to_remove' indexes in matched_row_indexes from df_data to balance out the
+            # number of Phishing & Legitimate rows
+            df_data.drop(matched_row_indexes[-abs(n_rows_to_remove):], inplace=True)
+            # Verify that the above code balanced out the data set
+            label_counts = df_data[kLabelColumn].value_counts()
+            assert label_counts[1] == label_counts[0], f"Phishing({label_counts[0]}) & Legitimate({label_counts[1]}) rows are not balanced."
+
+        # remove all the dupes from df_all_dupes so it only contains unique rows for easier parsing
+        # when evaluating the data set.
+        df_dupes = df_all_dupes.copy()
+        df_dupes.drop_duplicates(inplace=True)
+        # Write the unique dupes to disk
+        df_dupes.to_csv(os.path.join(results_path, f"{os.path.splitext(csv_name)[0]}_dupes.csv"))
 
         # print(df_data.shape)
         return df_data
@@ -192,14 +237,10 @@ class PhishingDetector:
 
         # Set up a 70/15/15 split for training/validating/testing
         # Will randomize the entries.
-        x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.15, random_state=42)
+        x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=kTestDataRatio, random_state=42)
         validation_size_ratio = len(x_test) / len(x_train)
         x_train, x_validate, y_train, y_validate = train_test_split(x_train, y_train, test_size=validation_size_ratio, random_state=42)
         assert len(x_test) == len(x_validate), "Expected x_validate & x_test to be the same size"
-        # print(f"\n--Data Split--\n" \
-        #       f"Training: {x_train.shape}\n"
-        #       f"Validate: {x_validate.shape}\n"
-        #       f"Test: {x_test.shape}\n")
 
         # Use a MinMaxScaler to scale all the features of Train, Validate & Test dataframes
         # to normalized values
@@ -245,6 +286,16 @@ class PhishingDetector:
                 x_test_tensor, y_test_tensor,
                 train_dataloader, validate_dataloader, test_dataloader,
                 y_test)
+
+    def data_split_str(self):
+        training_percent = (1.0 - kTestDataRatio * 2.0) * 100
+        test_percent = kTestDataRatio * 100.0
+        return f"\n-- Data Split ({training_percent} / {test_percent} / {test_percent}) --\n" \
+               f"\tAll:        {self.df_data.shape}\n" \
+               f"\tTraining:   {tensor_size_pretty_str(self.x_train_tensor.shape)} / {tensor_size_pretty_str(self.y_train_tensor.shape)}\n" \
+               f"\tValidate:   {tensor_size_pretty_str(self.x_validate_tensor.shape)} / {tensor_size_pretty_str(self.y_validate_tensor.shape)}\n" \
+               f"\tTest:       {tensor_size_pretty_str(self.x_test_tensor.shape)} / {tensor_size_pretty_str(self.y_test_tensor.shape)}"
+
 
     def plot_data(self):
 
@@ -464,6 +515,7 @@ class PhishingDetector:
 
 
 def main():
+    start_time = time.time()
     print(f"\nUsing {'GPU' if torch.cuda.is_available() else 'CPU'}")
 
     csv_name_list = ["DS4Tan.csv"]
@@ -479,7 +531,14 @@ def main():
                       [400, 500], [500, 400],
                       [800, 600], [600, 800],
                       [100, 200, 50], [50, 200, 100],
-                      [100, 200, 300], [300, 200, 100]]
+                      [100, 200, 300], [300, 200, 100],
+                      [50, 100, 200], [200, 100, 50],
+                      [100, 50, 100, 50], [50, 100, 50, 100],
+                      [300, 100, 300, 100], [100, 300, 100, 300],
+                      [600, 100, 600, 100], [100, 600, 100, 600],
+                      [103, 307], [307, 103],
+                      [173, 421, 223], [223, 421, 173],
+                      [173, 421, 223, 829, 103], [103, 829, 223, 421, 173]]
     for csv_name in csv_name_list:
         high_scores = []
         high_scores_to_disk = []
@@ -544,27 +603,27 @@ def main():
                                           train_loss_list, validate_loss_list, n_epochs)
 
                     # If the avg score is above a threshold then consider it a good run
-                    if avg_test_score > kHighScoreThreshold:
+                    if test_accuracy > kHighScoreThreshold:
                         # Build & print the metrics string
-                        metrics_str = f"Avg Score:      {avg_test_score}\n" \
-                                      f"Accuracy:       {test_accuracy}\n" \
+                        metrics_str = f"Accuracy:       {test_accuracy}\n" \
                                       f"Precision:      {test_precision}\n" \
                                       f"Recall:         {test_recall}\n" \
                                       f"F1:             {test_f1}\n" \
+                                      f"Avg Score:      {avg_test_score}\n" \
                                       f"Max Val Acc:    {max_validate_accuracy}\n" \
                                       f"Confusion Matrix:\n{test_conf_matrix}"
                         print(metrics_str)
                         # Add the header to the metrics string to be written to disk later
                         metrics_str = f"{header_str}\n{metrics_str}"
                         # Keep track of high performing configurations
-                        high_scores.append([avg_test_score, n_hidden_list, n_epochs, learning_rate])
-                        high_scores_to_disk.append((avg_test_score, metrics_str))
+                        high_scores.append([test_accuracy, avg_test_score, n_hidden_list, n_epochs, learning_rate])
+                        high_scores_to_disk.append((test_accuracy, metrics_str))
                         # Save the model to disk
                         ds4_tran.save_model(n_epochs)
                     else:
-                        print(f"Avg score below threshold: {avg_test_score}, max acc: {max_validate_accuracy}")
+                        print(f"Test accuracy below threshold: {test_accuracy}, max validation accuracy: {max_validate_accuracy}")
 
-        # Sort high_scores & high_scores_to_disk by avg_test_score in descending order
+        # Sort high_scores & high_scores_to_disk by test_accuracy in descending order
         def sort_func(high_score): return high_score[0]
         high_scores.sort(reverse=True, key=sort_func)
         high_scores_to_disk.sort(reverse=True, key=sort_func)
@@ -573,13 +632,16 @@ def main():
         print("\n\n------------------------------------------")
         print(f"High Scores from '{csv_name}' in Descending Order")
         [print(f"\t{i}") for i in high_scores]
+        elapsed_time_str = f"Elapsed Time: {timedelta(seconds=time.time() - start_time)}"
+        print(f"\n{elapsed_time_str}")
 
         # Save high_scores to disk for reference later
         high_scores_path = os.path.join(ds4_tran.results_path, "high_scores.txt")
         with open(high_scores_path, 'w') as fp:
-            fp.write(f"Data Shape: {ds4_tran.model.df_data.shape}\n")
+            fp.write(f"{ds4_tran.data_split_str()}")
             fp.write(f"High Scores from '{csv_name}' in Descending Order\n")
             [fp.write(f"{i}\n") for _, i in high_scores_to_disk]
+            fp.write(f"\n{elapsed_time_str}")
 
 
 # Press the green button in the gutter to run the script.
