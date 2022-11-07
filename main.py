@@ -306,7 +306,7 @@ class PhishingDetector:
             corr = df_data.corr()
             mask = np.triu(np.ones_like(corr, dtype=bool))
             sns.heatmap(corr, mask=mask, cmap='BuPu', robust=True, center=0, square=True, linewidths=.5, ax=ax)
-            plt.title(title, fontsize=15, font="Serif")
+            plt.title(title.replace("X", str(df_data.shape[1]), 1), fontsize=15, font="Serif")
             plt.tight_layout()
             plt.savefig(os.path.join(self.results_path, filename))
             # Clear the figure & axis for the next plot
@@ -315,7 +315,7 @@ class PhishingDetector:
 
         # Correlation Plot of all features
         correlation_plot(self.df_data.loc[:, self.df_data.columns != kLabelColumn],     # Don't include 'Label'
-                         "Correlation of All Features",
+                         "Correlation of All X Features",
                          f"correlation-all-features.png")
 
         # Find the names of all the Numerical columns (columns that represent data),
@@ -329,7 +329,7 @@ class PhishingDetector:
 
         # Correlation Plot of the Numerical features
         correlation_plot(self.df_data[numerical_col_names],
-                         "Correlation of Numerical (Continuous) Features",
+                         "Correlation of X Numerical Features",
                          f"correlation-numerical-features.png")
 
         # Plot a distribution of the avg numerical values across the 'Label' column
@@ -353,7 +353,7 @@ class PhishingDetector:
         df_nuniques = df_nuniques[1:-3][['Phishing', 'Legitimate']]
         ax = df_nuniques.plot(kind='bar', title=f"Distribution of Unique Numerical Values Across {kLabelColumn}",
                               legend=True, figsize=(8, 8), fontsize=12)
-        ax.set_xlabel("Numerical Features")
+        ax.set_xlabel(f"{len(numerical_col_names)} Numerical Features")
         ax.set_ylabel("# Unique Values")
         plt.tight_layout()
         plt.savefig(os.path.join(self.results_path, f"distribution-unique-numerical-features.png"))
@@ -366,7 +366,7 @@ class PhishingDetector:
         df_categorical = self.df_data[categorical_col_names].apply(pd.value_counts).T
         ax = df_categorical.plot(kind='bar', title=f"Distribution of Categorical Values",
                                  legend=True, figsize=(10, 8), fontsize=12)
-        ax.set_xlabel("Categorical Features")
+        ax.set_xlabel(f"{len(categorical_col_names)} Categorical Features")
         ax.set_ylabel("# Values")
         plt.tight_layout()
         plt.savefig(os.path.join(self.results_path, f"distribution-categorical-features.png"))
