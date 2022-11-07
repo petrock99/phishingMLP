@@ -157,7 +157,7 @@ class PhishingDetector:
         # print(df_data.head(5))
 
         # Convert -1's in the 'Label' column to 0's to make pytorch happy.
-        # 0 == Phishing, 1 == Legitimate
+        # 1 == Phishing, 0 == Legitimate
         assert df_data[kLabelColumn].isin([-1, 1]).all(), f"Expected only -1 & 1 in the '{kLabelColumn}' column"
         df_data.loc[df_data[kLabelColumn] < 0, kLabelColumn] = 0
         # print(df_data.head(5))
@@ -209,7 +209,7 @@ class PhishingDetector:
         n_rows_to_remove = label_counts[1] - label_counts[0]
         if n_rows_to_remove != 0:
             # Get a list of rows matching the label with more rows than the other.
-            # 'n_rows_to_remove > 0' remove legitimate rows, otherwise remove phishing rows
+            # 'n_rows_to_remove > 0' remove phishing rows, otherwise remove legitimate rows
             matched_row_indexes = df_data[df_data[kLabelColumn] == (1 if n_rows_to_remove > 0 else 0)].index
             assert len(matched_row_indexes) >= n_rows_to_remove, f"Trying to remove more rows than available.\n" \
                                                                  f"# to remove: {n_rows_to_remove}, # available: {len(matched_row_indexes)}"
@@ -218,13 +218,16 @@ class PhishingDetector:
             df_data.drop(matched_row_indexes[-abs(n_rows_to_remove):], inplace=True)
             # Verify that the above code balanced out the data set
             label_counts = df_data[kLabelColumn].value_counts()
-            assert label_counts[1] == label_counts[0], f"Phishing({label_counts[0]}) & Legitimate({label_counts[1]}) rows are not balanced."
+            assert label_counts[1] == label_counts[0], f"Legitimate({label_counts[0]}) & Phishing({label_counts[1]}) rows are not balanced."
 
         # remove all the dupes from df_dupes so it only contains unique rows for easier parsing
         # when evaluating the data set.
         df_dupes.drop_duplicates(inplace=True)
         # Write the unique dupes to disk
         df_dupes.to_csv(os.path.join(results_path, f"{os.path.splitext(csv_name)[0]}_dupes.csv"))
+
+        # Write the dataset we will run against to disk
+        df_data.to_csv(os.path.join(results_path, f"{os.path.splitext(csv_name)[0]}_processed.csv"))
 
         # print(df_data.shape)
         return df_data
@@ -334,8 +337,8 @@ class PhishingDetector:
 
         # Plot a distribution of the avg numerical values across the 'Label' column
         df_distr = self.df_data.groupby(kLabelColumn)[numerical_col_names].mean().reset_index().T
-        df_distr.rename(columns={0: 'Phishing', 1: "Legitimate"}, inplace=True)
-        df_distr = df_distr[1:-3][['Phishing', 'Legitimate']]
+        df_distr.rename(columns={0: "Legitimate", 1: "Phishing"}, inplace=True)
+        df_distr = df_distr[1:-3][["Legitimate", "Phishing"]]
         plt.rcParams['axes.facecolor'] = 'w'
         ax = df_distr.plot(kind='bar', title=f"Distribution of Average Numerical Values Across {kLabelColumn}",
                            figsize=(8, 8), legend=True, fontsize=12)
@@ -349,8 +352,8 @@ class PhishingDetector:
 
         # Plot the number of unique values in each numerical column, grouped by label
         df_nuniques = self.df_data.groupby(kLabelColumn)[numerical_col_names].nunique().reset_index().T
-        df_nuniques.rename(columns={0: 'Phishing', 1: "Legitimate"}, inplace=True)
-        df_nuniques = df_nuniques[1:-3][['Phishing', 'Legitimate']]
+        df_nuniques.rename(columns={0: "Legitimate", 1: "Phishing"}, inplace=True)
+        df_nuniques = df_nuniques[1:-3][["Legitimate", "Phishing"]]
         ax = df_nuniques.plot(kind='bar', title=f"Distribution of Unique Numerical Values Across {kLabelColumn}",
                               legend=True, figsize=(8, 8), fontsize=12)
         ax.set_xlabel(f"{len(numerical_col_names)} Numerical Features")
