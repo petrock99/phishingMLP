@@ -32,10 +32,10 @@ import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 kLabelColumn = 'Label'
-kHighScoreThreshold = 0.965
-kCategoricalColumnThreshold = 0.95
 kBatchSize = 64
-kTestDataRatio = 0.15
+kHighAccuracyThreshold = 0.965          # 0 <-> 1.0
+kSameValueInColumnThreshold = 0.95      # 0 <-> 1.0
+kTestDataRatio = 0.15                   # 0 <-> 1.0
 
 # Tensor.shape returns a Tensor.Size, which  prints a list of values. e.g. [x, y].
 # numpy.shape & pd.DataFrame.shape return a tuple. e.g. (x, y).
@@ -172,14 +172,14 @@ class PhishingDetector:
         df_data.drop_duplicates(inplace=True)
 
         cols_to_drop = []
-        if kCategoricalColumnThreshold < 100.0:
+        if kSameValueInColumnThreshold < 100.0:
             # Remove categorical columns containing the same value in 95% or more of its rows
             # [TODO] There has got to be a simpler, cleaner and/or built in way to do this.
             def is_col_to_drop(col):
                 n_rows = df_data.shape[0]
                 value_counts = df_data[col].value_counts()
                 for value in value_counts.keys():
-                    if value_counts[value] / n_rows >= kCategoricalColumnThreshold:
+                    if value_counts[value] / n_rows >= kSameValueInColumnThreshold:
                         return True
                 return False
             cols_to_drop = [col for col in df_data.keys() if col != kLabelColumn and is_col_to_drop(col)]
@@ -227,7 +227,7 @@ class PhishingDetector:
         df_dupes.to_csv(os.path.join(results_path, f"{os.path.splitext(csv_name)[0]}_dupes.csv"))
 
         # Write the dataset we will run against to disk
-        df_data.to_csv(os.path.join(results_path, f"{os.path.splitext(csv_name)[0]}_processed.csv"))
+        df_data.to_csv(os.path.join(results_path, f"{os.path.splitext(csv_name)[0]}_filtered.csv"))
 
         # print(df_data.shape)
         return df_data
@@ -566,9 +566,9 @@ def main():
                     # Close any pyplot figures that may still be open from previous epochs
                     plt.close('all')
 
-                    header_str = "\n****************************************\n" \
-                                 + f"csv: '{csv_name}', hidden layers: {n_hidden_list}, epoch: {n_epochs}, learning rate: {learning_rate}"
-                    print(header_str)
+                    header_str = "\n****************************************\n"
+                    header_body_str = f"hidden layers: {n_hidden_list}, epoch: {n_epochs}, learning rate: {learning_rate}"
+                    print(f"{header_str}csv: '{csv_name}', {header_body_str}")
 
                     train_loss_list, train_accuracy_list = [], []
                     validate_loss_list, validate_accuracy_list = [], []
@@ -621,7 +621,7 @@ def main():
                                           train_loss_list, validate_loss_list, n_epochs)
 
                     # If the avg score is above a threshold then consider it a good run
-                    if test_accuracy > kHighScoreThreshold:
+                    if test_accuracy > kHighAccuracyThreshold:
                         # Build & print the metrics string
                         metrics_str = f"Accuracy:       {test_accuracy}\n" \
                                       f"Precision:      {test_precision}\n" \
@@ -632,7 +632,7 @@ def main():
                                       f"Confusion Matrix:\n{test_conf_matrix}"
                         print(metrics_str)
                         # Add the header to the metrics string to be written to disk later
-                        metrics_str = f"{header_str}\n{metrics_str}"
+                        metrics_str = f"{header_str}{header_body_str}\n{metrics_str}"
                         # Keep track of high performing configurations
                         high_scores.append([test_accuracy, avg_test_score, n_hidden_list, n_epochs, learning_rate])
                         high_scores_to_disk.append((test_accuracy, metrics_str))
