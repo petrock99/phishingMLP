@@ -14,7 +14,8 @@ This project is for a simple GPU aware Binary Classifier Model Factory script to
 The script was tested with _Python 3.9_ & _Pytorch 1.11.0_ using _anaconda 22.9.0_ on _macOS Ventura 13.0_ & __CSU Server OS Version__. It may work with other package & versions, but has not been tested. An environment.yml, with expected package versions, file has been supplied for quick & easy bring up of the project.<br>
 <br>
 ```
-% cd <path to project source directory>
+% git clone https://github.com/petrock99/phishingMLPFactory.git
+% cd phishingMLPFactory
 % conda activate
 % conda env create -f environment.yml -p ./envs
 % conda activate ./envs
