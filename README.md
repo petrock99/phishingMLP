@@ -39,11 +39,11 @@ The script uses a _70/15/15_ dataset split for training validation and testing r
 <br>
 Data mining graphs are generated to help quantify the data and guide dataset & model decisions:
 - Correlation graphs of all the features and just the numeric features<br>
-	<center><img src="./example-correlation-all.png" alt="Example Correlation All Graph" width="350"/><img src="./example-correlation-numerical.png" alt="Example Correlation Numerical Graph" width="350"/></center><br>
+	<center><img src="./example-graphs/correlation-all.png" alt="Example Correlation All Graph" width="350"/><img src="example-graphs/correlation-numerical.png" alt="Example Correlation Numerical Graph" width="350"/></center><br>
 - Distribution graphs of unique numerical features and categorical features<br>
-	<center><img src="./example-distribution-unique.png" alt="Example Distribution Unique Values Graph" width="350"/><img src="./example-distribution-categorical.png" alt="Example Distribution Categorical Graph" width="350"/></center><br>
+	<center><img src="./example-graphs/distribution-unique.png" alt="Example Distribution Unique Values Graph" width="350"/><img src="./example-graphs/distribution-categorical.png" alt="Example Distribution Categorical Graph" width="350"/></center><br>
 - Average distribution graph of numerical features<br>
-	<center><img src="./example-avg-distribution.png" alt="Example Distribution Graph" width="350"/></center><br>
+	<center><img src="./example-graphs/avg-distribution.png" alt="Example Distribution Graph" width="350"/></center><br>
 
 ----
 ## Process
@@ -67,7 +67,7 @@ If a model configuration performance meets or excedes an accuracy threshold the 
 <br>
 An accuracy & loss graph image file will be created in the _./results_ directory for every model configuration. An example graph is shown below. The file name format is _"[hidden layer list]-learning rate-epochs-results.png"_. For example, _"[100, 150]-0.01-300-results.png"_ a model configuration with two hidden layers with 100 & 150 nodes each, a learning rate of 0.01 and 300 epochs. The Max Val Accuracy & Min Val Loss, represented by the green dots in the graphs, indicates the maximum accuracy & minimum loss during achieved during validation. It also indicates training state of the model that is used during testing.
 <br>
-<center><img src="./example-results.png" alt="Example Results Graph" width="800"/></center><br>
+<center><img src="./example-graphs/results.png" alt="Example Results Graph" width="700"/></center><br>
 <br>
 When a dataset has been processed a _./results/high_scores.txt_ file is created containing the results of each model configuration that met or exceded the accuracy threshold, sorted by accuracy in descending order. It also contains information about the dataset being processed.<br>
 
