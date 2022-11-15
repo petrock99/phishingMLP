@@ -43,6 +43,10 @@ kTestDataRatio = 0.15                   # 0 <-> 1.0
 def tensor_size_pretty_str(size):
     return f"({size[0]}, {size[1]})"
 
+# Strips the extension off a file name or file path, if one exists
+def strip_extension(file_name):
+    return os.path.splitext(f"{file_name}")[0]
+
 class BinaryMLPModel(nn.Module):
     def __init__(self, n_inputs, n_hiddens_list, use_gpu=torch.cuda.is_available()):
         assert isinstance(n_hiddens_list, list), "n_hiddens_list must be a list or tuple"
@@ -104,7 +108,7 @@ class PhishingDetector:
         # Build a path to save the results into. Include the date/time
         # to make differentiating run results easier, and to semi-guarantee
         # a unique name within the 'results' directory.
-        self.results_path = os.path.join("./results", time.strftime(f"{csv_name} %y-%m-%d at %H.%M.%S"))
+        self.results_path = os.path.join("./results", time.strftime(f"{strip_extension(csv_name)} %y-%m-%d at %H.%M.%S"))
         assert not os.path.exists(self.results_path), f"Expected '{self.results_path}' to not exist (yet)."
         # Create the results folder
         os.makedirs(self.results_path)
@@ -196,7 +200,7 @@ class PhishingDetector:
         # Append the remaining list of dupes, if any, that are about to be removed
         pd.concat([df_dupes, df_data[df_data.duplicated()]])
         # Write the full set of duplicate rows to disk
-        df_dupes.to_csv(os.path.join(results_path, f"{os.path.splitext(csv_name)[0]}_all_dupes.csv"))
+        df_dupes.to_csv(os.path.join(results_path, f"{strip_extension(csv_name)}_all_dupes.csv"))
 
         # Remove any duplicates (again)
         df_data.drop_duplicates(inplace=True)
@@ -224,10 +228,10 @@ class PhishingDetector:
         # when evaluating the data set.
         df_dupes.drop_duplicates(inplace=True)
         # Write the unique dupes to disk
-        df_dupes.to_csv(os.path.join(results_path, f"{os.path.splitext(csv_name)[0]}_dupes.csv"))
+        df_dupes.to_csv(os.path.join(results_path, f"{strip_extension(csv_name)}_dupes.csv"))
 
         # Write the dataset we will run against to disk
-        df_data.to_csv(os.path.join(results_path, f"{os.path.splitext(csv_name)[0]}_filtered.csv"))
+        df_data.to_csv(os.path.join(results_path, f"{strip_extension(csv_name)}_filtered.csv"))
 
         # print(df_data.shape)
         return df_data
@@ -526,6 +530,12 @@ class PhishingDetector:
                 recall_score(self.y_test, y_test_pred),
                 f1_score(self.y_test, y_test_pred))
 
+def write_metrics_to_disk(metrics_path, header, csv_name, metrics):
+    # Write the results to metrics_path. If metrics_path already exists this will overwrite it.
+    with open(metrics_path, 'w') as fp:
+        fp.write(f"{header}\n")
+        fp.write(f"Metrics from '{csv_name}' in Descending Order\n")
+        [fp.write(f"{i}\n") for _, i in metrics]
 
 def main():
     start_time = time.time()
@@ -558,8 +568,15 @@ def main():
     # different configs to find the 'best' model for the data set.
     for csv_name in csv_name_list:
         high_scores = []
-        high_scores_to_disk = []
+        metrics = []
         ds4_tran = PhishingDetector(csv_name)
+
+        # Set up the metrics file and its initial text
+        metrics_path = os.path.join(ds4_tran.results_path, f"{strip_extension(csv_name)}-metrics.txt")
+        write_metrics_to_disk(metrics_path, ds4_tran.data_split_str(), csv_name, metrics)
+
+        def sort_func(metrics): return metrics[0]   # Sort by accuracy
+
         for n_hidden_list in n_hidden_lists:
             for learning_rate in learning_rate_list:
                 for n_epochs in n_epoch_list:
@@ -620,31 +637,42 @@ def main():
                                           train_accuracy_list, validate_accuracy_list,
                                           train_loss_list, validate_loss_list, n_epochs)
 
-                    # If the avg score is above a threshold then consider it a good run
+                    # Build & print the metrics string
+                    metrics_str = f"Accuracy:       {test_accuracy}\n" \
+                                  f"Precision:      {test_precision}\n" \
+                                  f"Recall:         {test_recall}\n" \
+                                  f"F1:             {test_f1}\n" \
+                                  f"Avg Score:      {avg_test_score}\n" \
+                                  f"Max Val Acc:    {max_validate_accuracy}\n" \
+                                  f"Confusion Matrix:\n{test_conf_matrix}"
+
+                    # If the accuracy is above a threshold then consider it a good run
                     if test_accuracy > kHighAccuracyThreshold:
-                        # Build & print the metrics string
-                        metrics_str = f"Accuracy:       {test_accuracy}\n" \
-                                      f"Precision:      {test_precision}\n" \
-                                      f"Recall:         {test_recall}\n" \
-                                      f"F1:             {test_f1}\n" \
-                                      f"Avg Score:      {avg_test_score}\n" \
-                                      f"Max Val Acc:    {max_validate_accuracy}\n" \
-                                      f"Confusion Matrix:\n{test_conf_matrix}"
+                        # Only dump the metrics for the good runs to not clutter the console
                         print(metrics_str)
-                        # Add the header to the metrics string to be written to disk later
-                        metrics_str = f"{header_str}{header_body_str}\n{metrics_str}"
                         # Keep track of high performing configurations
                         high_scores.append([test_accuracy, avg_test_score, n_hidden_list, n_epochs, learning_rate])
-                        high_scores_to_disk.append((test_accuracy, metrics_str))
                         # Save the model to disk
                         ds4_tran.save_model(n_epochs)
                     else:
                         print(f"Test accuracy below threshold: {test_accuracy}, max validation accuracy: {max_validate_accuracy}")
 
-        # Sort high_scores & high_scores_to_disk by test_accuracy in descending order
-        def sort_func(high_score): return high_score[0]
+                    # Add the header to the metrics string
+                    metrics_str = f"{header_str}{header_body_str}\n{metrics_str}"
+                    # Append the test_accuracy & metrics_str to metrics.
+                    metrics.append((test_accuracy, metrics_str))
+                    # Sort metrics by test_accuracy in descending order
+                    metrics.sort(reverse=True, key=sort_func)
+                    # Write the sorted metrics to disk. This will overwrite the existing content
+                    # of the file so we can view the changes live in a Terminal window via:
+                    # 'while :; do clear; head -n 55 metrics_path; sleep 2; done'
+                    # or 'watch head -n 55 metrics_path' if 'watch' is available on the OS.
+                    # 'head -n 55' will print the first 55 lines of the file, which are the
+                    # metrics for four runs
+                    write_metrics_to_disk(metrics_path, ds4_tran.data_split_str(), csv_name, metrics)
+
+        # Sort high_scores by test_accuracy in descending order
         high_scores.sort(reverse=True, key=sort_func)
-        high_scores_to_disk.sort(reverse=True, key=sort_func)
 
         # print the high scores
         print("\n\n------------------------------------------")
@@ -653,12 +681,8 @@ def main():
         elapsed_time_str = f"Elapsed Time: {timedelta(seconds=time.time() - start_time)}"
         print(f"\n{elapsed_time_str}")
 
-        # Save high_scores to disk for reference later
-        high_scores_path = os.path.join(ds4_tran.results_path, "high_scores.txt")
-        with open(high_scores_path, 'w') as fp:
-            fp.write(f"{ds4_tran.data_split_str()}\n")
-            fp.write(f"High Scores from '{csv_name}' in Descending Order\n")
-            [fp.write(f"{i}\n") for _, i in high_scores_to_disk]
+        # Append the elapsed time to the metrics file
+        with open(metrics_path, 'a') as fp:
             fp.write(f"\n{elapsed_time_str}")
 
 

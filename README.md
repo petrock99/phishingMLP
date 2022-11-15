@@ -14,7 +14,7 @@ This project is for a simple GPU aware Binary Classifier Model Factory script to
 ----
 ## Setup
 
-The script was tested with _Python 3.9_ & _Pytorch 1.11.0_ using _anaconda 22.9.0_ on _macOS Ventura 13.0_ & __CSU Server OS Version__. It may work with other package & versions, but has not been tested. An environment.yml, with expected package versions, file has been supplied for quick & easy bring up of the project.<br>
+The script was tested with _Python 3.9_ & _Pytorch 1.11.0_ using _anaconda 22.9.0_ on _macOS Ventura 13.0_ & AlmaLinux 8.6. It may work with other operating systems and package versions, but has not been tested. An environment.yml file has been supplied for quick & easy bring up of the project.<br>
 <br>
 ```
 % git clone https://github.com/petrock99/phishingMLPFactory.git
@@ -43,7 +43,8 @@ Data mining graphs are generated to help quantify the data and guide dataset & m
 - Distribution graphs of unique numerical features and categorical features<br>
 	<center><img src="./example-graphs/distribution-unique.png" alt="Example Distribution Unique Values Graph" width="350"/><img src="./example-graphs/distribution-categorical.png" alt="Example Distribution Categorical Graph" width="350"/></center><br>
 - Average distribution graph of numerical features<br>
-	<center><img src="./example-graphs/avg-distribution.png" alt="Example Distribution Graph" width="350"/></center><br>
+	<center><img src="./example-graphs/avg-distribution.png" alt="Example Distribution Graph" width="350"/></center>
+<br>
 
 ----
 ## Process
@@ -54,9 +55,10 @@ A 70/15/15 train/validate/test split of the datase is used. Hold-Out Validation 
 <br>
 The script processes the training, validation & test sets in batches and keeps a running tally of the accuracies of each batch. It then averages these accuracies to find the overall accuracy of each set.<br>
 <br>
-The script is GPU aware and will try to take advantage of CUDA enabled machines. If the script is run on non-CUDA hardware it will use the CPU. In my testing the GPU did not show significant improvement over CPU, but that is likely a bug in the code that will need to be tracked down.
+The script is GPU aware and will try to take advantage of CUDA enabled machines. If the script is run on non-CUDA hardware it will use the CPU. In my testing the GPU did not show significant improvement over CPU, but that is likely a bug in the code that will need to be tracked down.<br>
 <br>
-To avoid overfitting, the script keeps track of the Maximum Validation Accuracy and the corresponding model state during training. It is this model state that is used during testing and saved into the _./results_ directory for later use. This is a simpler and less error prone form of Early Stopping during training.
+To avoid overfitting, the script keeps track of the Maximum Validation Accuracy and the corresponding model state during training. It is this model state that is used during testing and saved into the _./results_ directory for later use. This is a simpler and less error prone form of Early Stopping during training.<br>
+<br>
 
 ----
 ## Output
