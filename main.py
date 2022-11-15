@@ -3,6 +3,7 @@
 # Press ⌃R to execute it or replace it with your code.
 # Press Double ⇧ to search everywhere for classes, files, tool windows, actions, and settings.
 
+import argparse
 import copy
 from datetime import timedelta
 import itertools
@@ -11,6 +12,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import sys
 import time
 import zipfile
 
@@ -37,7 +39,8 @@ kNumEpochs = 5000                       # High epochs because Early Exit is supp
 kHighAccuracyThreshold = 0.965          # 0 <-> 1.0
 kSameValueInColumnThreshold = 0.95      # 0 <-> 1.0
 kTestDataRatio = 0.15                   # 0 <-> 1.0
-
+kUseGPU = torch.cuda.is_available()
+kDatasetsPath = "./datasets"
 
 # Tensor.shape returns a Tensor.Size, which  prints a list of values. e.g. [x, y].
 # numpy.shape & pd.DataFrame.shape return a tuple. e.g. (x, y).
@@ -52,7 +55,7 @@ def strip_extension(file_name):
 
 
 class BinaryMLPModel(nn.Module):
-    def __init__(self, n_inputs, n_hiddens_list, use_gpu=torch.cuda.is_available()):
+    def __init__(self, n_inputs, n_hiddens_list, use_gpu=kUseGPU):
         assert isinstance(n_hiddens_list, list), "n_hiddens_list must be a list or tuple"
 
         super(BinaryMLPModel, self).__init__()
@@ -127,7 +130,7 @@ class PhishingDetector:
          self.x_test_tensor, self.y_test_tensor,
          self.train_dataloader, self.validate_dataloader,
          self.test_dataloader, self.y_test) = self.split_data(self.df_data)
-        print(f"\n{self.data_split_str()}")
+        print(f"\n{self.data_split_str(csv_name)}\n{stats_str()}")
 
         # plot stats about the data
         self.plot_data()
@@ -151,13 +154,12 @@ class PhishingDetector:
     @staticmethod
     def load_data(results_path, csv_name):
         # Extract the .csv if it hasn't been already
-        datasets_path = "./datasets"
-        csv_path = os.path.join(datasets_path, csv_name)
+        csv_path = os.path.join(kDatasetsPath, csv_name)
         if not os.path.exists(csv_path):
             zip_path = f"{csv_path}.zip"
             assert os.path.exists(zip_path), f"Expected '{zip_path}' to exist"
             with zipfile.ZipFile(zip_path, "r") as zip_ref:
-                zip_ref.extractall(datasets_path)
+                zip_ref.extractall(kDatasetsPath)
 
         # Read in the .csv dataset
         df_data = pd.read_csv(csv_path)
@@ -240,7 +242,7 @@ class PhishingDetector:
         return df_data
 
     @staticmethod
-    def split_data(df_data, use_gpu=torch.cuda.is_available()):
+    def split_data(df_data, use_gpu=kUseGPU):
         device = 'cuda' if use_gpu else 'cpu'
 
         # Extract the raw data and label from df_data
@@ -299,14 +301,15 @@ class PhishingDetector:
                 train_dataloader, validate_dataloader, test_dataloader,
                 y_test)
 
-    def data_split_str(self):
+    def data_split_str(self, csv_name):
         training_percent = (1.0 - kTestDataRatio * 2.0) * 100
         test_percent = kTestDataRatio * 100.0
-        return f"-- Data Split ({training_percent} / {test_percent} / {test_percent}) --\n" \
+        return f"-- Dataset '{csv_name}' --\n" \
+               f"\tSplit:      {training_percent} / {test_percent} / {test_percent}\n" \
                f"\tAll:        {self.df_data.shape}\n" \
                f"\tTraining:   {tensor_size_pretty_str(self.x_train_tensor.shape)} / {tensor_size_pretty_str(self.y_train_tensor.shape)}\n" \
                f"\tValidate:   {tensor_size_pretty_str(self.x_validate_tensor.shape)} / {tensor_size_pretty_str(self.y_validate_tensor.shape)}\n" \
-               f"\tTest:       {tensor_size_pretty_str(self.x_test_tensor.shape)} / {tensor_size_pretty_str(self.y_test_tensor.shape)}"
+               f"\tTest:       {tensor_size_pretty_str(self.x_test_tensor.shape)} / {tensor_size_pretty_str(self.y_test_tensor.shape)}\n" \
 
     def plot_data(self):
 
@@ -532,43 +535,56 @@ class PhishingDetector:
                 recall_score(self.y_test, y_test_pred),
                 f1_score(self.y_test, y_test_pred))
 
-def write_metrics_to_disk(metrics_path, header, csv_name, metrics):
+
+def stats_str():
+    return f"-- Stats --\n" \
+           f"\tBatch Size:                       {kBatchSize}\n" \
+           f"\tEarly Exit Threshold:             {kEarlyExitThreshold}\n" \
+           f"\tCommon Column Value Threshold:    {kSameValueInColumnThreshold}\n" \
+
+
+def write_metrics_to_disk(metrics_path, header, metrics):
     # Write the results to metrics_path. If metrics_path already exists this will overwrite it.
     with open(metrics_path, 'w') as fp:
-        fp.write(f"{header}\n\n")
-        fp.write(f"-- Stats --\n")
-        fp.write(f"\tBatch Size:                       {kBatchSize}\n")
-        fp.write(f"\tEarly Exit Threshold:             {kEarlyExitThreshold}\n")
-        fp.write(f"\tCommon Column Value Threshold:    {kSameValueInColumnThreshold}\n\n")
-        fp.write(f"-- Metrics from '{csv_name}' in Descending Order --\n")
+        fp.write(f"{header}\n{stats_str()}\n")
+        fp.write(f"-- Metrics in Descending Order --\n")
         [fp.write(f"{i}\n") for _, i in metrics]
 
-def main():
-    start_time = time.time()
-    print(f"\nUsing {'GPU' if torch.cuda.is_available() else 'CPU'}")
+
+def main(argv):
+    args = parse_args(argv)
+
+    # Define some default values
+    default_csv_name_list = ["DS4Tan.csv"]
+    default_learning_rate_list = [0.01, 0.001, 0.0001]
+    default_n_hidden_lists = [[50, 50], [100, 100],
+                              [50, 50, 50], [100, 100, 100],
+                              [200, 200], [300, 300],
+                              [400, 400], [500, 500],
+                              [100, 150], [150, 100],
+                              [100, 300], [300, 100],
+                              [200, 300], [300, 200],
+                              [400, 500], [500, 400],
+                              [800, 600], [600, 800],
+                              [100, 200, 50], [50, 200, 100],
+                              [100, 200, 300], [300, 200, 100],
+                              [50, 100, 200], [200, 100, 50],
+                              [100, 50, 100, 50], [50, 100, 50, 100],
+                              [300, 100, 300, 100], [100, 300, 100, 300],
+                              [600, 100, 600, 100], [100, 600, 100, 600],
+                              [103, 307], [307, 103],
+                              [173, 421, 223], [223, 421, 173],
+                              [173, 421, 223, 829, 103], [103, 829, 223, 421, 173]]
 
     # Set up lists of parameters for the model factory to run through.
-    csv_name_list = ["DS4Tan.csv"]
-    n_epoch_list = [kNumEpochs]   # High epoch because Early Exit is supported.
-    learning_rate_list = [0.01, 0.001, 0.0001]
-    n_hidden_lists = [[50, 50], [100, 100],
-                      [50, 50, 50], [100, 100, 100],
-                      [200, 200], [300, 300],
-                      [400, 400], [500, 500],
-                      [100, 150], [150, 100],
-                      [100, 300], [300, 100],
-                      [200, 300], [300, 200],
-                      [400, 500], [500, 400],
-                      [800, 600], [600, 800],
-                      [100, 200, 50], [50, 200, 100],
-                      [100, 200, 300], [300, 200, 100],
-                      [50, 100, 200], [200, 100, 50],
-                      [100, 50, 100, 50], [50, 100, 50, 100],
-                      [300, 100, 300, 100], [100, 300, 100, 300],
-                      [600, 100, 600, 100], [100, 600, 100, 600],
-                      [103, 307], [307, 103],
-                      [173, 421, 223], [223, 421, 173],
-                      [173, 421, 223, 829, 103], [103, 829, 223, 421, 173]]
+    n_hidden_lists = [args.hidden_layers] if args.hidden_layers else default_n_hidden_lists
+    learning_rate_list = args.learning_rates if args.learning_rates else default_learning_rate_list
+    csv_name_list = args.csv_names if args.csv_names else default_csv_name_list
+
+    start_time = time.time()
+    print(f"\nUsing {'GPU' if kUseGPU else 'CPU'}")
+    if len(csv_name_list) > 1:
+        print(f"Datasets: {csv_name_list}")
 
     # Run through the list of parameters set up above to generate a series of models with
     # different configs to find the 'best' model for the data set.
@@ -579,14 +595,14 @@ def main():
 
         # Set up the metrics file and its initial text
         metrics_path = os.path.join(ds4_tran.results_path, f"{strip_extension(csv_name)}-metrics.txt")
-        write_metrics_to_disk(metrics_path, ds4_tran.data_split_str(), csv_name, metrics)
+        write_metrics_to_disk(metrics_path, ds4_tran.data_split_str(csv_name), metrics)
         # Print where/how to view the metrics during processing
-        # 'head -n 55' will print the first 55 lines of the file, which are the
-        # metrics for four runs
-        print(f"\nView metrics live via either:"
-              f"\n\twatch head -n 55 \"{os.path.abspath(metrics_path)}\""
+        # 'head -n 26' will print the first 26 lines of the file, which are the
+        # metrics for the best run available.
+        print(f"View metrics live via either:"
+              f"\n\twatch head -n 26 \"{os.path.abspath(metrics_path)}\""
               f"\n\t\tor"
-              f"\n\twhile :; do clear; head -n 55 \"{os.path.abspath(metrics_path)}\"; sleep 2; done")
+              f"\n\twhile :; do clear; head -n 26 \"{os.path.abspath(metrics_path)}\"; sleep 2; done")
 
         def sort_func(sort_metrics): return sort_metrics[0]   # Sort by accuracy
 
@@ -683,7 +699,7 @@ def main():
                 metrics.sort(reverse=True, key=sort_func)
                 # Write the sorted metrics to disk. This will overwrite the existing content
                 # of the file, so we can view the changes live in a Terminal window. See above.
-                write_metrics_to_disk(metrics_path, ds4_tran.data_split_str(), csv_name, metrics)
+                write_metrics_to_disk(metrics_path, ds4_tran.data_split_str(csv_name), metrics)
 
         # Sort high_scores by test_accuracy in descending order
         high_scores.sort(reverse=True, key=sort_func)
@@ -692,14 +708,137 @@ def main():
         print("\n\n------------------------------------------")
         print(f"High Scores from '{csv_name}' in Descending Order")
         [print(f"\t{i}") for i in high_scores]
-        elapsed_time_str = f"Elapsed Time: {timedelta(seconds=time.time() - start_time)}"
+        elapsed_time_str = f"Elapsed Time: {timedelta(seconds=time.time() - start_time)}\n\n"
         print(f"\n{elapsed_time_str}")
 
         # Append the elapsed time to the metrics file
         with open(metrics_path, 'a') as fp:
             fp.write(f"\n{elapsed_time_str}")
 
+def parse_args(argv):
+    def float_range(min, max):
+        def float_range_checker(arg):
+            try:
+                f = float(arg)
+            except ValueError:
+                raise argparse.ArgumentTypeError("Expected a floating point number")
+            if f < min or f > max:
+                raise argparse.ArgumentTypeError(f"Expected range of [{min} .. {max}]")
+            return f
+
+        # Return function handle to checking function
+        return float_range_checker
+
+    def unsigned_int(arg):
+        try:
+            i = int(arg)
+        except ValueError:
+            raise argparse.ArgumentTypeError("Expected an integral value")
+        if i < 0:
+            raise argparse.ArgumentTypeError("Expected a minimum value of 0")
+        return i
+
+    def csv_filename(arg):
+        try:
+            name = str(arg)
+        except ValueError:
+            raise argparse.ArgumentTypeError("Expected a string value")
+
+        # Make sure its a .csv
+        if os.path.splitext(name)[1] != ".csv":
+            raise argparse.ArgumentTypeError(f"Expected .csv file name: {name}")
+
+        # make sure all the .csv files exist
+        csv_path = os.path.join(kDatasetsPath, name)
+        if not os.path.exists(csv_path):
+            raise argparse.ArgumentTypeError(f"No such file or directory: {os.path.abspath(csv_path)}")
+        return name
+
+    def hidden_layer(arg):
+        try:
+            n_nodes = int(arg)
+        except ValueError:
+            raise argparse.ArgumentTypeError("Expected an integral value")
+        return n_nodes
+
+    global kUseGPU, kBatchSize, kNumEpochs, kHighAccuracyThreshold, kSameValueInColumnThreshold, kTestDataRatio
+    arg_parser = argparse.ArgumentParser(fromfile_prefix_chars='@')  # Supports putting arguments in a config file
+    arg_parser.add_argument('--csv_names',
+                            metavar='CSV_NAME',
+                            type=csv_filename,
+                            action='store',
+                            help='One or more .csv names',
+                            nargs='+',
+                            required=False)
+    arg_parser.add_argument('--hidden_layers',
+                            metavar='N_NODES',
+                            type=hidden_layer,
+                            action='store',
+                            help='List of the number of nodes in each hidden layer',
+                            nargs='+',
+                            required=False)
+    arg_parser.add_argument('--learning_rates',
+                            metavar='LEARNING_RATE',
+                            type=float_range(0,1),
+                            action='store',
+                            help='List of learning rates to train with, between 0 & 1',
+                            nargs='+',
+                            required=False)
+    arg_parser.add_argument('--force_cpu',
+                            action='store_true',
+                            help='Force running on the CPU instead of GPU',
+                            default=False,
+                            required=False)
+    arg_parser.add_argument('--batch_size',
+                            type=unsigned_int,
+                            action='store',
+                            help='Batch size used during processing',
+                            default=kBatchSize,
+                            required=False)
+    arg_parser.add_argument('--epochs',
+                            metavar='N_EPOCHS',
+                            type=unsigned_int,
+                            action='store',
+                            help='Max number of epochs for training',
+                            default=kNumEpochs,
+                            required=False)
+    arg_parser.add_argument('--exit_threshold',
+                            metavar='THRESHOLD',
+                            type=unsigned_int,
+                            action='store',
+                            help='Number of epochs to wait before exiting training',
+                            default=kHighAccuracyThreshold,
+                            required=False)
+    arg_parser.add_argument('--common_value_threshold',
+                            metavar='THRESHOLD',
+                            type=float_range(0, 1),
+                            action='store',
+                            help='Used to drop columns with the same value in the specified percentage of entries. Value between 0 & 1',
+                            default=kSameValueInColumnThreshold,
+                            required=False)
+    arg_parser.add_argument('--test_split',
+                            metavar='SPLIT',
+                            type=float_range(0, 1),
+                            action='store',
+                            help='The ratio of the dataset used for testing. Will also be used for validation. Remainder is for training.',
+                            default=kTestDataRatio,
+                            required=False)
+
+    # Load any arguments passed to the script
+    args = arg_parser.parse_args(argv)
+
+    # Update global variable values from any arguments passed to the script
+    if args.force_cpu:
+        kUseGPU = False
+    kBatchSize = args.batch_size
+    kNumEpochs = args.epochs
+    kHighAccuracyThreshold = args.exit_threshold
+    kSameValueInColumnThreshold = args.common_value_threshold
+    kTestDataRatio = args.test_split
+
+    return args
+
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    main()
+    main(sys.argv[1:])
