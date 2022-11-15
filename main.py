@@ -299,7 +299,7 @@ class PhishingDetector:
     def data_split_str(self):
         training_percent = (1.0 - kTestDataRatio * 2.0) * 100
         test_percent = kTestDataRatio * 100.0
-        return f"\n-- Data Split ({training_percent} / {test_percent} / {test_percent}) --\n" \
+        return f"-- Data Split ({training_percent} / {test_percent} / {test_percent}) --\n" \
                f"\tAll:        {self.df_data.shape}\n" \
                f"\tTraining:   {tensor_size_pretty_str(self.x_train_tensor.shape)} / {tensor_size_pretty_str(self.y_train_tensor.shape)}\n" \
                f"\tValidate:   {tensor_size_pretty_str(self.x_validate_tensor.shape)} / {tensor_size_pretty_str(self.y_validate_tensor.shape)}\n" \
@@ -574,6 +574,13 @@ def main():
         # Set up the metrics file and its initial text
         metrics_path = os.path.join(ds4_tran.results_path, f"{strip_extension(csv_name)}-metrics.txt")
         write_metrics_to_disk(metrics_path, ds4_tran.data_split_str(), csv_name, metrics)
+        # Print where/how to view the metrics during processing
+        # 'head -n 55' will print the first 55 lines of the file, which are the
+        # metrics for four runs
+        print(f"\nView metrics live via either:"
+              f"\n\t'watch head -n 55 '{os.path.abspath(metrics_path)}''"
+              f"\n\t\tor"
+              f"\n\t'while :; do clear; head -n 55 '{os.path.abspath(metrics_path)}'; sleep 2; done'")
 
         def sort_func(metrics): return metrics[0]   # Sort by accuracy
 
@@ -664,11 +671,7 @@ def main():
                     # Sort metrics by test_accuracy in descending order
                     metrics.sort(reverse=True, key=sort_func)
                     # Write the sorted metrics to disk. This will overwrite the existing content
-                    # of the file so we can view the changes live in a Terminal window via:
-                    # 'while :; do clear; head -n 55 metrics_path; sleep 2; done'
-                    # or 'watch head -n 55 metrics_path' if 'watch' is available on the OS.
-                    # 'head -n 55' will print the first 55 lines of the file, which are the
-                    # metrics for four runs
+                    # of the file so we can view the changes live in a Terminal window. See above.
                     write_metrics_to_disk(metrics_path, ds4_tran.data_split_str(), csv_name, metrics)
 
         # Sort high_scores by test_accuracy in descending order
