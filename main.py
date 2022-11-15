@@ -585,6 +585,8 @@ def main(argv):
     print(f"\nUsing {'GPU' if kUseGPU else 'CPU'}")
     if len(csv_name_list) > 1:
         print(f"Datasets: {csv_name_list}")
+    if len(learning_rate_list) > 1:
+        print(f"Learning Rates: {learning_rate_list}")
 
     # Run through the list of parameters set up above to generate a series of models with
     # different configs to find the 'best' model for the data set.
@@ -748,10 +750,12 @@ def parse_args(argv):
         if os.path.splitext(name)[1] != ".csv":
             raise argparse.ArgumentTypeError(f"Expected .csv file name: {name}")
 
-        # make sure all the .csv files exist
+        # make sure all the .csv or .csv.zip file exist
         csv_path = os.path.join(kDatasetsPath, name)
         if not os.path.exists(csv_path):
-            raise argparse.ArgumentTypeError(f"No such file or directory: {os.path.abspath(csv_path)}")
+            zip_path = f"{csv_path}.zip"
+            if not os.path.exists(zip_path):
+               raise argparse.ArgumentTypeError(f"No such file or directory: {csv_path} or {zip_path}")
         return name
 
     def hidden_layer(arg):
@@ -761,7 +765,6 @@ def parse_args(argv):
             raise argparse.ArgumentTypeError("Expected an integral value")
         return n_nodes
 
-    global kUseGPU, kBatchSize, kNumEpochs, kHighAccuracyThreshold, kSameValueInColumnThreshold, kTestDataRatio
     arg_parser = argparse.ArgumentParser(fromfile_prefix_chars='@')  # Supports putting arguments in a config file
     arg_parser.add_argument('--csv_names',
                             metavar='CSV_NAME',
@@ -793,48 +796,49 @@ def parse_args(argv):
                             type=unsigned_int,
                             action='store',
                             help='Batch size used during processing',
-                            default=kBatchSize,
                             required=False)
     arg_parser.add_argument('--epochs',
                             metavar='N_EPOCHS',
                             type=unsigned_int,
                             action='store',
                             help='Max number of epochs for training',
-                            default=kNumEpochs,
                             required=False)
     arg_parser.add_argument('--exit_threshold',
                             metavar='THRESHOLD',
                             type=unsigned_int,
                             action='store',
                             help='Number of epochs to wait before exiting training',
-                            default=kHighAccuracyThreshold,
                             required=False)
     arg_parser.add_argument('--common_value_threshold',
                             metavar='THRESHOLD',
                             type=float_range(0, 1),
                             action='store',
                             help='Used to drop columns with the same value in the specified percentage of entries. Value between 0 & 1',
-                            default=kSameValueInColumnThreshold,
                             required=False)
     arg_parser.add_argument('--test_split',
                             metavar='SPLIT',
                             type=float_range(0, 1),
                             action='store',
                             help='The ratio of the dataset used for testing. Will also be used for validation. Remainder is for training.',
-                            default=kTestDataRatio,
                             required=False)
 
     # Load any arguments passed to the script
     args = arg_parser.parse_args(argv)
 
     # Update global variable values from any arguments passed to the script
+    global kUseGPU, kBatchSize, kNumEpochs, kEarlyExitThreshold, kSameValueInColumnThreshold, kTestDataRatio
     if args.force_cpu:
         kUseGPU = False
-    kBatchSize = args.batch_size
-    kNumEpochs = args.epochs
-    kHighAccuracyThreshold = args.exit_threshold
-    kSameValueInColumnThreshold = args.common_value_threshold
-    kTestDataRatio = args.test_split
+    if args.batch_size is not None:
+        kBatchSize = args.batch_size
+    if args.epochs is not None:
+        kNumEpochs = args.epochs
+    if args.exit_threshold is not None:
+        kEarlyExitThreshold = args.exit_threshold
+    if args.common_value_threshold is not None:
+        kSameValueInColumnThreshold = args.common_value_threshold
+    if args.test_split is not None:
+        kTestDataRatio = args.test_split
 
     return args
 
