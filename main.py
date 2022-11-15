@@ -34,8 +34,8 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 
 kLabelColumn = 'Label'
 kBatchSize = 64
-kEarlyExitThreshold = 150
-kNumEpochs = 5000                       # High epochs because Early Exit is supported
+kEarlyStopPatience = 150
+kNumEpochs = 5000                       # High epochs because Early Stopping is supported
 kHighAccuracyThreshold = 0.965          # 0 <-> 1.0
 kSameValueInColumnThreshold = 0.95      # 0 <-> 1.0
 kTestDataRatio = 0.15                   # 0 <-> 1.0
@@ -539,7 +539,7 @@ class PhishingDetector:
 def stats_str():
     return f"-- Stats --\n" \
            f"\tBatch Size:                       {kBatchSize}\n" \
-           f"\tEarly Exit Threshold:             {kEarlyExitThreshold}\n" \
+           f"\tEarly Stop Patience:              {kEarlyStopPatience}\n" \
            f"\tCommon Column Value Threshold:    {kSameValueInColumnThreshold}\n" \
 
 
@@ -547,7 +547,7 @@ def write_metrics_to_disk(metrics_path, header, metrics):
     # Write the results to metrics_path. If metrics_path already exists this will overwrite it.
     with open(metrics_path, 'w') as fp:
         fp.write(f"{header}\n{stats_str()}\n")
-        fp.write(f"-- Metrics in Descending Order --\n")
+        fp.write(f"-- Metrics in Accuracy Descending Order --\n")
         [fp.write(f"{i}\n") for _, i in metrics]
 
 
@@ -653,7 +653,7 @@ def main(argv):
 
                     # If the max validation accuracy hasn't improved in a while then bail out.
                     # The model has started to overfit and likely will not improve if we continue.
-                    if max_validate_accuracy_epoch + kEarlyExitThreshold < epoch:
+                    if max_validate_accuracy_epoch + kEarlyStopPatience < epoch:
                         break
 
                 # Load the best model that was generated during training in order
@@ -708,7 +708,7 @@ def main(argv):
 
         # print the high scores
         print("\n\n------------------------------------------")
-        print(f"High Scores from '{csv_name}' in Descending Order")
+        print(f"High Scores from '{csv_name}' in Accuracy Descending Order")
         [print(f"\t{i}") for i in high_scores]
         elapsed_time_str = f"Elapsed Time: {timedelta(seconds=time.time() - start_time)}\n\n"
         print(f"\n{elapsed_time_str}")
@@ -803,11 +803,11 @@ def parse_args(argv):
                             action='store',
                             help='Max number of epochs for training',
                             required=False)
-    arg_parser.add_argument('--exit_threshold',
-                            metavar='THRESHOLD',
+    arg_parser.add_argument('--early_stop_patience',
+                            metavar='PATIENCE',
                             type=unsigned_int,
                             action='store',
-                            help='Number of epochs to wait before exiting training',
+                            help='Number of epochs to wait for change before stopping training',
                             required=False)
     arg_parser.add_argument('--common_value_threshold',
                             metavar='THRESHOLD',
@@ -826,15 +826,15 @@ def parse_args(argv):
     args = arg_parser.parse_args(argv)
 
     # Update global variable values from any arguments passed to the script
-    global kUseGPU, kBatchSize, kNumEpochs, kEarlyExitThreshold, kSameValueInColumnThreshold, kTestDataRatio
+    global kUseGPU, kBatchSize, kNumEpochs, kEarlyStopPatience, kSameValueInColumnThreshold, kTestDataRatio
     if args.force_cpu:
         kUseGPU = False
     if args.batch_size is not None:
         kBatchSize = args.batch_size
     if args.epochs is not None:
         kNumEpochs = args.epochs
-    if args.exit_threshold is not None:
-        kEarlyExitThreshold = args.exit_threshold
+    if args.early_stop_patience is not None:
+        kEarlyStopPatience = args.early_stop_patience
     if args.common_value_threshold is not None:
         kSameValueInColumnThreshold = args.common_value_threshold
     if args.test_split is not None:
