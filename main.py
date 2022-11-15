@@ -33,6 +33,8 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 
 kLabelColumn = 'Label'
 kBatchSize = 64
+kEarlyExitThreshold = 150
+kNumEpochs = 5000                       # High epochs because Early Exit is supported
 kHighAccuracyThreshold = 0.965          # 0 <-> 1.0
 kSameValueInColumnThreshold = 0.95      # 0 <-> 1.0
 kTestDataRatio = 0.15                   # 0 <-> 1.0
@@ -305,7 +307,6 @@ class PhishingDetector:
                f"\tValidate:   {tensor_size_pretty_str(self.x_validate_tensor.shape)} / {tensor_size_pretty_str(self.y_validate_tensor.shape)}\n" \
                f"\tTest:       {tensor_size_pretty_str(self.x_test_tensor.shape)} / {tensor_size_pretty_str(self.y_test_tensor.shape)}"
 
-
     def plot_data(self):
 
         def correlation_plot(df_data, title, filename):
@@ -534,7 +535,11 @@ def write_metrics_to_disk(metrics_path, header, csv_name, metrics):
     # Write the results to metrics_path. If metrics_path already exists this will overwrite it.
     with open(metrics_path, 'w') as fp:
         fp.write(f"{header}\n\n")
-        fp.write(f"Metrics from '{csv_name}' in Descending Order\n")
+        fp.write(f"-- Stats --\n")
+        fp.write(f"\tBatch Size:                       {kBatchSize}\n")
+        fp.write(f"\tEarly Exit Threshold:             {kEarlyExitThreshold}\n")
+        fp.write(f"\tCommon Column Value Threshold:    {kSameValueInColumnThreshold}\n\n")
+        fp.write(f"-- Metrics from '{csv_name}' in Descending Order --\n")
         [fp.write(f"{i}\n") for _, i in metrics]
 
 def main():
@@ -543,7 +548,7 @@ def main():
 
     # Set up lists of parameters for the model factory to run through.
     csv_name_list = ["DS4Tan.csv"]
-    n_epoch_list = [150, 300]
+    n_epoch_list = [kNumEpochs]   # High epoch because Early Exit is supported.
     learning_rate_list = [0.01, 0.001, 0.0001]
     n_hidden_lists = [[50, 50], [100, 100],
                       [50, 50, 50], [100, 100, 100],
@@ -591,7 +596,7 @@ def main():
                     plt.close('all')
 
                     header_str = "\n****************************************\n"
-                    header_body_str = f"hidden layers: {n_hidden_list}, epoch: {n_epochs}, learning rate: {learning_rate}"
+                    header_body_str = f"hidden layers: {n_hidden_list}, learning rate: {learning_rate}"
                     print(f"{header_str}csv: '{csv_name}', {header_body_str}")
 
                     train_loss_list, train_accuracy_list = [], []
@@ -628,6 +633,11 @@ def main():
                             min_validate_loss = validate_loss
                             min_validate_loss_epoch = epoch
 
+                        # If the max validation accuracy hasn't improved in a while then bail out.
+                        # The model has started to overfit and likely will not improve if we continue.
+                        if max_validate_accuracy_epoch + kEarlyExitThreshold < epoch:
+                            break
+
                     # Load the best model that was generated during training in order
                     # to (hopefully) produce the best testing results.
                     ds4_tran.load_best_model()
@@ -645,12 +655,13 @@ def main():
                                           train_loss_list, validate_loss_list, n_epochs)
 
                     # Build & print the metrics string
-                    metrics_str = f"Accuracy:       {test_accuracy}\n" \
-                                  f"Precision:      {test_precision}\n" \
-                                  f"Recall:         {test_recall}\n" \
-                                  f"F1:             {test_f1}\n" \
-                                  f"Avg Score:      {avg_test_score}\n" \
-                                  f"Max Val Acc:    {max_validate_accuracy}\n" \
+                    metrics_str = f"Accuracy:             {test_accuracy}\n" \
+                                  f"Precision:            {test_precision}\n" \
+                                  f"Recall:               {test_recall}\n" \
+                                  f"F1:                   {test_f1}\n" \
+                                  f"Avg Score:            {avg_test_score}\n" \
+                                  f"Max Val Acc:          {max_validate_accuracy}\n" \
+                                  f"Max Val Acc Epoch:    {max_validate_accuracy_epoch}\n" \
                                   f"Confusion Matrix:\n{test_conf_matrix}"
 
                     # If the accuracy is above a threshold then consider it a good run
