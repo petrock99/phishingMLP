@@ -7,7 +7,6 @@ import copy
 from datetime import timedelta
 import itertools
 import os
-import math
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -39,15 +38,18 @@ kHighAccuracyThreshold = 0.965          # 0 <-> 1.0
 kSameValueInColumnThreshold = 0.95      # 0 <-> 1.0
 kTestDataRatio = 0.15                   # 0 <-> 1.0
 
+
 # Tensor.shape returns a Tensor.Size, which  prints a list of values. e.g. [x, y].
 # numpy.shape & pd.DataFrame.shape return a tuple. e.g. (x, y).
 # Mimic the tuple printing with a Tensor.Size.
 def tensor_size_pretty_str(size):
     return f"({size[0]}, {size[1]})"
 
+
 # Strips the extension off a file name or file path, if one exists
 def strip_extension(file_name):
     return os.path.splitext(f"{file_name}")[0]
+
 
 class BinaryMLPModel(nn.Module):
     def __init__(self, n_inputs, n_hiddens_list, use_gpu=torch.cuda.is_available()):
@@ -177,7 +179,6 @@ class PhishingDetector:
         # Remove any duplicate rows
         df_data.drop_duplicates(inplace=True)
 
-        cols_to_drop = []
         if kSameValueInColumnThreshold < 100.0:
             # Remove categorical columns containing the same value in 95% or more of its rows
             # [TODO] There has got to be a simpler, cleaner and/or built in way to do this.
@@ -226,7 +227,7 @@ class PhishingDetector:
             label_counts = df_data[kLabelColumn].value_counts()
             assert label_counts[1] == label_counts[0], f"Legitimate({label_counts[0]}) & Phishing({label_counts[1]}) rows are not balanced."
 
-        # remove all the dupes from df_dupes so it only contains unique rows for easier parsing
+        # remove all the dupes from df_dupes, so it only contains unique rows for easier parsing
         # when evaluating the data set.
         df_dupes.drop_duplicates(inplace=True)
         # Write the unique dupes to disk
@@ -310,10 +311,10 @@ class PhishingDetector:
     def plot_data(self):
 
         def correlation_plot(df_data, title, filename):
-            fig, ax = plt.subplots(figsize=(8, 8))
+            _, corr_ax = plt.subplots(figsize=(8, 8))
             corr = df_data.corr()
             mask = np.triu(np.ones_like(corr, dtype=bool))
-            sns.heatmap(corr, mask=mask, cmap='BuPu', robust=True, center=0, square=True, linewidths=.5, ax=ax)
+            sns.heatmap(corr, mask=mask, cmap='BuPu', robust=True, center=0, square=True, linewidths=.5, ax=corr_ax)
             plt.title(title.replace("X", str(df_data.shape[1]), 1), fontsize=15, font="Serif")
             plt.tight_layout()
             plt.savefig(os.path.join(self.results_path, filename))
@@ -387,7 +388,7 @@ class PhishingDetector:
                      min_validate_loss, min_validate_loss_epoch,
                      max_validate_accuracy, max_validate_accuracy_epoch,
                      train_accuracy_list, validate_accuracy_list,
-                     train_loss_list, validate_loss_list, n_epochs):
+                     train_loss_list, validate_loss_list):
         assert os.path.exists(self.results_path), f"Expected '{self.results_path}' to exist"
 
         # Set up a 1x2 grid of subplots
@@ -416,7 +417,7 @@ class PhishingDetector:
         # Create a path to the .png file with the stats for this model in the name.
         # e.g. "[5, 5]-0.001-300-result.png"
         plot_file_path = os.path.join(self.results_path,
-                                      f"{self.model.n_hiddens_list}-{self.learning_rate}-{n_epochs}-results.png")
+                                      f"{self.model.n_hiddens_list}-{self.learning_rate}-results.png")
         plt.tight_layout()
         # Save the plot image to disk
         plt.savefig(plot_file_path)
@@ -426,21 +427,21 @@ class PhishingDetector:
         plt.cla()
         plt.close(fig)
 
-    def save_model(self, n_epochs):
+    def save_model(self):
         assert os.path.exists(self.results_path), f"Expected '{self.results_path}' to exist"
 
         # Create a path to the .pt file with the stats for this model in the name.
         # e.g. "[5, 5]-0.001-300-state_dict.pt"
         state_dict_file_path = os.path.join(self.results_path,
-                                            f"{self.model.n_hiddens_list}-{self.learning_rate}-{n_epochs}-state_dict.pt")
+                                            f"{self.model.n_hiddens_list}-{self.learning_rate}-state_dict.pt")
         # Save the state dictionary to disk
         torch.save(self.model.state_dict(), state_dict_file_path)
 
     def load_best_model(self):
         # Load the state dictionary that produced the lowest loss during
-        # training back into the model so it will use those weights and
+        # training back into the model, so it will use those weights and
         # hopefully produce optimal results.
-        assert self.best_state_dict != None, "best_state_dict should be populated by now."
+        assert self.best_state_dict is not None, "best_state_dict should be populated by now."
         self.model.load_state_dict(self.best_state_dict)
 
     def save_best_model(self):
@@ -477,7 +478,7 @@ class PhishingDetector:
         # may be negligible.
         loss = running_loss / n_batches
         accuracy = running_accuracy / n_batches
-        return (loss, accuracy)
+        return loss, accuracy
 
     # Called once per epoch
     def validate(self):
@@ -506,7 +507,7 @@ class PhishingDetector:
         # may be negligible.
         loss = running_loss / n_batches
         accuracy = running_accuracy / n_batches
-        return (loss, accuracy)
+        return loss, accuracy
 
     # Called after all the training & validation is complete
     def test(self):
@@ -587,103 +588,102 @@ def main():
               f"\n\t\tor"
               f"\n\twhile :; do clear; head -n 55 \"{os.path.abspath(metrics_path)}\"; sleep 2; done")
 
-        def sort_func(metrics): return metrics[0]   # Sort by accuracy
+        def sort_func(sort_metrics): return sort_metrics[0]   # Sort by accuracy
 
         for n_hidden_list in n_hidden_lists:
             for learning_rate in learning_rate_list:
-                for n_epochs in n_epoch_list:
-                    # Close any pyplot figures that may still be open from previous epochs
-                    plt.close('all')
+                # Close any pyplot figures that may still be open from previous epochs
+                plt.close('all')
 
-                    header_str = "\n****************************************\n"
-                    header_body_str = f"hidden layers: {n_hidden_list}, learning rate: {learning_rate}"
-                    print(f"{header_str}csv: '{csv_name}', {header_body_str}")
+                header_str = "\n****************************************\n"
+                header_body_str = f"hidden layers: {n_hidden_list}, learning rate: {learning_rate}"
+                print(f"{header_str}csv: '{csv_name}', {header_body_str}")
 
-                    train_loss_list, train_accuracy_list = [], []
-                    validate_loss_list, validate_accuracy_list = [], []
-                    min_validate_loss = float("inf")
-                    min_validate_loss_epoch = -1
-                    max_validate_accuracy = 0
-                    max_validate_accuracy_epoch = -1
+                train_loss_list, train_accuracy_list = [], []
+                validate_loss_list, validate_accuracy_list = [], []
+                min_validate_loss = float("inf")
+                min_validate_loss_epoch = -1
+                max_validate_accuracy = 0
+                max_validate_accuracy_epoch = -1
 
-                    # Start the model off fresh each run
-                    ds4_tran.build_model(n_hidden_list, learning_rate)
-                    for epoch in range(n_epochs):
-                        # Kick off the training run for this epoch
-                        (train_loss, train_accuracy) = ds4_tran.train()
-                        # Validate the training so far
-                        (validate_loss, validate_accuracy) = ds4_tran.validate()
+                # Start the model off fresh each run
+                ds4_tran.build_model(n_hidden_list, learning_rate)
+                for epoch in range(kNumEpochs):
+                    # Kick off the training run for this epoch
+                    (train_loss, train_accuracy) = ds4_tran.train()
+                    # Validate the training so far
+                    (validate_loss, validate_accuracy) = ds4_tran.validate()
 
-                        # Keep track of the losses & accuracies from each training & validation phase
-                        train_loss_list.append(train_loss)
-                        train_accuracy_list.append(train_accuracy)
-                        validate_loss_list.append(validate_loss)
-                        validate_accuracy_list.append(validate_accuracy)
+                    # Keep track of the losses & accuracies from each training & validation phase
+                    train_loss_list.append(train_loss)
+                    train_accuracy_list.append(train_accuracy)
+                    validate_loss_list.append(validate_loss)
+                    validate_accuracy_list.append(validate_accuracy)
 
-                        # Keep track of the max accuracy during validation, and its corresponding
-                        # model state dictionary. It will be loaded back into the model for testing.
-                        # This helps prevent over fitting.
-                        if max_validate_accuracy < validate_accuracy:
-                            max_validate_accuracy = validate_accuracy
-                            max_validate_accuracy_epoch = epoch
-                            ds4_tran.save_best_model()
+                    # Keep track of the max accuracy during validation, and its corresponding
+                    # model state dictionary. It will be loaded back into the model for testing.
+                    # This helps prevent over fitting.
+                    if max_validate_accuracy < validate_accuracy:
+                        max_validate_accuracy = validate_accuracy
+                        max_validate_accuracy_epoch = epoch
+                        ds4_tran.save_best_model()
 
-                        # Keep track of the minimum loss during validation for plotting purposes
-                        if validate_loss < min_validate_loss:
-                            min_validate_loss = validate_loss
-                            min_validate_loss_epoch = epoch
+                    # Keep track of the minimum loss during validation for plotting purposes
+                    if validate_loss < min_validate_loss:
+                        min_validate_loss = validate_loss
+                        min_validate_loss_epoch = epoch
 
-                        # If the max validation accuracy hasn't improved in a while then bail out.
-                        # The model has started to overfit and likely will not improve if we continue.
-                        if max_validate_accuracy_epoch + kEarlyExitThreshold < epoch:
-                            break
+                    # If the max validation accuracy hasn't improved in a while then bail out.
+                    # The model has started to overfit and likely will not improve if we continue.
+                    if max_validate_accuracy_epoch + kEarlyExitThreshold < epoch:
+                        break
 
-                    # Load the best model that was generated during training in order
-                    # to (hopefully) produce the best testing results.
-                    ds4_tran.load_best_model()
+                # Load the best model that was generated during training in order
+                # to (hopefully) produce the best testing results.
+                ds4_tran.load_best_model()
 
-                    # Run the test phase with the newly trained model.
-                    (test_conf_matrix, test_accuracy, test_precision, test_recall, test_f1) = ds4_tran.test()
-                    # Calculate the average of all the scores returned from test
-                    avg_test_score = (test_accuracy + test_precision + test_recall + test_f1) / 4
+                # Run the test phase with the newly trained model.
+                (test_conf_matrix, test_accuracy, test_precision, test_recall, test_f1) = ds4_tran.test()
+                # Calculate the average of all the scores returned from test
+                avg_test_score = (test_accuracy + test_precision + test_recall + test_f1) / 4
 
-                    # Plot the accuracies & losses
-                    ds4_tran.plot_results(test_accuracy, avg_test_score,
-                                          min_validate_loss, min_validate_loss_epoch,
-                                          max_validate_accuracy, max_validate_accuracy_epoch,
-                                          train_accuracy_list, validate_accuracy_list,
-                                          train_loss_list, validate_loss_list, n_epochs)
+                # Plot the accuracies & losses
+                ds4_tran.plot_results(test_accuracy, avg_test_score,
+                                      min_validate_loss, min_validate_loss_epoch,
+                                      max_validate_accuracy, max_validate_accuracy_epoch,
+                                      train_accuracy_list, validate_accuracy_list,
+                                      train_loss_list, validate_loss_list)
 
-                    # Build & print the metrics string
-                    metrics_str = f"Accuracy:             {test_accuracy}\n" \
-                                  f"Precision:            {test_precision}\n" \
-                                  f"Recall:               {test_recall}\n" \
-                                  f"F1:                   {test_f1}\n" \
-                                  f"Avg Score:            {avg_test_score}\n" \
-                                  f"Max Val Acc:          {max_validate_accuracy}\n" \
-                                  f"Max Val Acc Epoch:    {max_validate_accuracy_epoch}\n" \
-                                  f"Confusion Matrix:\n{test_conf_matrix}"
+                # Build & print the metrics string
+                metrics_str = f"Accuracy:             {test_accuracy}\n" \
+                              f"Precision:            {test_precision}\n" \
+                              f"Recall:               {test_recall}\n" \
+                              f"F1:                   {test_f1}\n" \
+                              f"Avg Score:            {avg_test_score}\n" \
+                              f"Max Val Acc:          {max_validate_accuracy}\n" \
+                              f"Max Val Acc Epoch:    {max_validate_accuracy_epoch}\n" \
+                              f"Confusion Matrix:\n{test_conf_matrix}"
 
-                    # If the accuracy is above a threshold then consider it a good run
-                    if test_accuracy > kHighAccuracyThreshold:
-                        # Only dump the metrics for the good runs to not clutter the console
-                        print(metrics_str)
-                        # Keep track of high performing configurations
-                        high_scores.append([test_accuracy, avg_test_score, n_hidden_list, n_epochs, learning_rate])
-                        # Save the model to disk
-                        ds4_tran.save_model(n_epochs)
-                    else:
-                        print(f"Test accuracy below threshold: {test_accuracy}, max validation accuracy: {max_validate_accuracy}")
+                # If the accuracy is above a threshold then consider it a good run
+                if test_accuracy > kHighAccuracyThreshold:
+                    # Only dump the metrics for the good runs to not clutter the console
+                    print(metrics_str)
+                    # Keep track of high performing configurations
+                    high_scores.append([test_accuracy, avg_test_score, n_hidden_list, learning_rate])
+                    # Save the model to disk
+                    ds4_tran.save_model()
+                else:
+                    print(f"Test accuracy below threshold: {test_accuracy}, max validation accuracy: {max_validate_accuracy}")
 
-                    # Add the header to the metrics string
-                    metrics_str = f"{header_str}{header_body_str}\n{metrics_str}"
-                    # Append the test_accuracy & metrics_str to metrics.
-                    metrics.append((test_accuracy, metrics_str))
-                    # Sort metrics by test_accuracy in descending order
-                    metrics.sort(reverse=True, key=sort_func)
-                    # Write the sorted metrics to disk. This will overwrite the existing content
-                    # of the file so we can view the changes live in a Terminal window. See above.
-                    write_metrics_to_disk(metrics_path, ds4_tran.data_split_str(), csv_name, metrics)
+                # Add the header to the metrics string
+                metrics_str = f"{header_str}{header_body_str}\n{metrics_str}"
+                # Append the test_accuracy & metrics_str to metrics.
+                metrics.append((test_accuracy, metrics_str))
+                # Sort metrics by test_accuracy in descending order
+                metrics.sort(reverse=True, key=sort_func)
+                # Write the sorted metrics to disk. This will overwrite the existing content
+                # of the file, so we can view the changes live in a Terminal window. See above.
+                write_metrics_to_disk(metrics_path, ds4_tran.data_split_str(), csv_name, metrics)
 
         # Sort high_scores by test_accuracy in descending order
         high_scores.sort(reverse=True, key=sort_func)
