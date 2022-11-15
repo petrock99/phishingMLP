@@ -123,7 +123,7 @@ class PhishingDetector:
          self.x_test_tensor, self.y_test_tensor,
          self.train_dataloader, self.validate_dataloader,
          self.test_dataloader, self.y_test) = self.split_data(self.df_data)
-        print(self.data_split_str())
+        print(f"\n{self.data_split_str()}")
 
         # plot stats about the data
         self.plot_data()
@@ -578,9 +578,9 @@ def main():
         # 'head -n 55' will print the first 55 lines of the file, which are the
         # metrics for four runs
         print(f"\nView metrics live via either:"
-              f"\n\t'watch head -n 55 '{os.path.abspath(metrics_path)}''"
+              f"\n\twatch head -n 55 \"{os.path.abspath(metrics_path)}\""
               f"\n\t\tor"
-              f"\n\t'while :; do clear; head -n 55 '{os.path.abspath(metrics_path)}'; sleep 2; done'")
+              f"\n\twhile :; do clear; head -n 55 \"{os.path.abspath(metrics_path)}\"; sleep 2; done")
 
         def sort_func(metrics): return metrics[0]   # Sort by accuracy
 
