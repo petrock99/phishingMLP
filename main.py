@@ -533,7 +533,7 @@ class PhishingDetector:
 def write_metrics_to_disk(metrics_path, header, csv_name, metrics):
     # Write the results to metrics_path. If metrics_path already exists this will overwrite it.
     with open(metrics_path, 'w') as fp:
-        fp.write(f"{header}\n")
+        fp.write(f"{header}\n\n")
         fp.write(f"Metrics from '{csv_name}' in Descending Order\n")
         [fp.write(f"{i}\n") for _, i in metrics]
 
