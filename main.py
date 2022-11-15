@@ -42,6 +42,29 @@ kTestDataRatio = 0.15                   # 0 <-> 1.0
 kUseGPU = torch.cuda.is_available()
 kDatasetsPath = "./datasets"
 
+# Define some default values
+kDefaultCSVNameList = ["DS4Tan.csv"]
+kDefaultLearningRateList = [0.01, 0.001, 0.0001]
+kDefaultNumHiddenLists = [[50, 50], [100, 100],
+                          [50, 50, 50], [100, 100, 100],
+                          [200, 200], [300, 300],
+                          [400, 400], [500, 500],
+                          [100, 150], [150, 100],
+                          [100, 300], [300, 100],
+                          [200, 300], [300, 200],
+                          [400, 500], [500, 400],
+                          [800, 600], [600, 800],
+                          [100, 200, 50], [50, 200, 100],
+                          [100, 200, 300], [300, 200, 100],
+                          [50, 100, 200], [200, 100, 50],
+                          [100, 50, 100, 50], [50, 100, 50, 100],
+                          [300, 100, 300, 100], [100, 300, 100, 300],
+                          [600, 100, 600, 100], [100, 600, 100, 600],
+                          [103, 307], [307, 103],
+                          [173, 421, 223], [223, 421, 173],
+                          [173, 421, 223, 829, 103], [103, 829, 223, 421, 173]]
+
+
 # Tensor.shape returns a Tensor.Size, which  prints a list of values. e.g. [x, y].
 # numpy.shape & pd.DataFrame.shape return a tuple. e.g. (x, y).
 # Mimic the tuple printing with a Tensor.Size.
@@ -552,34 +575,11 @@ def write_metrics_to_disk(metrics_path, header, metrics):
 
 
 def main():
+    # Build lists of parameters for the model factory to run through.
     args = parse_args()
-
-    # Define some default values
-    default_csv_name_list = ["DS4Tan.csv"]
-    default_learning_rate_list = [0.01, 0.001, 0.0001]
-    default_n_hidden_lists = [[50, 50], [100, 100],
-                              [50, 50, 50], [100, 100, 100],
-                              [200, 200], [300, 300],
-                              [400, 400], [500, 500],
-                              [100, 150], [150, 100],
-                              [100, 300], [300, 100],
-                              [200, 300], [300, 200],
-                              [400, 500], [500, 400],
-                              [800, 600], [600, 800],
-                              [100, 200, 50], [50, 200, 100],
-                              [100, 200, 300], [300, 200, 100],
-                              [50, 100, 200], [200, 100, 50],
-                              [100, 50, 100, 50], [50, 100, 50, 100],
-                              [300, 100, 300, 100], [100, 300, 100, 300],
-                              [600, 100, 600, 100], [100, 600, 100, 600],
-                              [103, 307], [307, 103],
-                              [173, 421, 223], [223, 421, 173],
-                              [173, 421, 223, 829, 103], [103, 829, 223, 421, 173]]
-
-    # Set up lists of parameters for the model factory to run through.
-    n_hidden_lists = [args.hidden_layers] if args.hidden_layers else default_n_hidden_lists
-    learning_rate_list = args.learning_rates if args.learning_rates else default_learning_rate_list
-    csv_name_list = args.csv_names if args.csv_names else default_csv_name_list
+    n_hidden_lists = [args.hidden_layers] if args.hidden_layers else kDefaultNumHiddenLists
+    learning_rate_list = args.learning_rates if args.learning_rates else kDefaultLearningRateList
+    csv_name_list = args.csv_names if args.csv_names else kDefaultCSVNameList
 
     start_time = time.time()
     print(f"\nUsing {'GPU' if kUseGPU else 'CPU'}")
@@ -758,13 +758,6 @@ def parse_args():
                raise argparse.ArgumentTypeError(f"No such file or directory: {csv_path} or {zip_path}")
         return name
 
-    def hidden_layer(arg):
-        try:
-            n_nodes = int(arg)
-        except ValueError:
-            raise argparse.ArgumentTypeError("Expected an integral value")
-        return n_nodes
-
     arg_parser = argparse.ArgumentParser(fromfile_prefix_chars='@')  # Supports putting arguments in a config file
     arg_parser.add_argument('--csv_names',
                             metavar='CSV_NAME',
@@ -775,7 +768,7 @@ def parse_args():
                             required=False)
     arg_parser.add_argument('--hidden_layers',
                             metavar='N_NODES',
-                            type=hidden_layer,
+                            type=unsigned_int,
                             action='store',
                             help='List of the number of nodes in each hidden layer',
                             nargs='+',
