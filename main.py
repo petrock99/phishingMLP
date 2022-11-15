@@ -551,8 +551,8 @@ def write_metrics_to_disk(metrics_path, header, metrics):
         [fp.write(f"{i}\n") for _, i in metrics]
 
 
-def main(argv):
-    args = parse_args(argv)
+def main():
+    args = parse_args()
 
     # Define some default values
     default_csv_name_list = ["DS4Tan.csv"]
@@ -717,7 +717,7 @@ def main(argv):
         with open(metrics_path, 'a') as fp:
             fp.write(f"\n{elapsed_time_str}")
 
-def parse_args(argv):
+def parse_args():
     def float_range(min, max):
         def float_range_checker(arg):
             try:
@@ -823,7 +823,7 @@ def parse_args(argv):
                             required=False)
 
     # Load any arguments passed to the script
-    args = arg_parser.parse_args(argv)
+    args = arg_parser.parse_args(sys.argv[1:])
 
     # Update global variable values from any arguments passed to the script
     global kUseGPU, kBatchSize, kNumEpochs, kEarlyStopPatience, kSameValueInColumnThreshold, kTestDataRatio
@@ -845,4 +845,4 @@ def parse_args(argv):
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    main(sys.argv[1:])
+    main()
