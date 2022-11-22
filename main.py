@@ -33,7 +33,7 @@ import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 kLabelColumn = 'Label'
-kBatchSize = 64
+kBatchSize = 0                          # 0 == no batching.
 kEarlyStopPatience = 150
 kNumEpochs = 5000                       # High epochs because Early Stopping is supported
 kHighAccuracyThreshold = 0.965          # 0 <-> 1.0
@@ -283,8 +283,11 @@ class PhishingDetector:
         # to normalized values
         scaler = preprocessing.MinMaxScaler()
         x_train = scaler.fit_transform(x_train.values)
+        batch_size_train = kBatchSize if kBatchSize != 0 else len(x_train)
         x_validate = scaler.fit_transform(x_validate.values)
+        batch_size_validate = kBatchSize if kBatchSize != 0 else len(x_validate)
         x_test = scaler.fit_transform(x_test.values)
+        batch_size_test = kBatchSize if kBatchSize != 0 else len(x_test)
         # print(f"Scaled values of Training set\n{x_train}\n" \
         #       f"Scaled values of Validation set\n{x_validate}\n" \
         #       f"Scaled values of Testing set\n{x_test}\n")
@@ -304,19 +307,19 @@ class PhishingDetector:
         # create a DataLoader from it.
         y_train_tensor = y_train_tensor.unsqueeze(1)
         train_dataset = TensorDataset(x_train_tensor, y_train_tensor)
-        train_dataloader = DataLoader(train_dataset, batch_size=kBatchSize)
+        train_dataloader = DataLoader(train_dataset, batch_size=batch_size_train)
 
         # Stuff x_validate_tensor, y_validate_tensor into a TensorDataset and
         # create a DataLoader from it.
         y_validate_tensor = y_validate_tensor.unsqueeze(1)
         validate_dataset = TensorDataset(x_validate_tensor, y_validate_tensor)
-        validate_dataloader = DataLoader(validate_dataset, batch_size=kBatchSize)
+        validate_dataloader = DataLoader(validate_dataset, batch_size=batch_size_validate)
 
         # Stuff x_test_tensor, y_test_tensor into a TensorDataset and
         # create a DataLoader from it.
         y_test_tensor = y_test_tensor.unsqueeze(1)
         test_dataset = TensorDataset(x_test_tensor, y_test_tensor)
-        test_dataloader = DataLoader(test_dataset, batch_size=kBatchSize)
+        test_dataloader = DataLoader(test_dataset, batch_size=batch_size_test)
 
         return (x_train_tensor, y_train_tensor,
                 x_validate_tensor, y_validate_tensor,
@@ -758,12 +761,13 @@ def parse_args():
                raise argparse.ArgumentTypeError(f"No such file or directory: {csv_path} or {zip_path}")
         return name
 
+    global kUseGPU, kBatchSize, kNumEpochs, kEarlyStopPatience, kSameValueInColumnThreshold, kTestDataRatio
     arg_parser = argparse.ArgumentParser(fromfile_prefix_chars='@')  # Supports putting arguments in a config file
     arg_parser.add_argument('--csv_names',
                             metavar='CSV_NAME',
                             type=csv_filename,
                             action='store',
-                            help='One or more .csv names',
+                            help=f'One or more .csv names. Default: {kDefaultCSVNameList}',
                             nargs='+',
                             required=False)
     arg_parser.add_argument('--hidden_layers',
@@ -777,7 +781,7 @@ def parse_args():
                             metavar='LEARNING_RATE',
                             type=float_range(0,1),
                             action='store',
-                            help='List of learning rates to train with, between 0 & 1',
+                            help=f"List of learning rates to train with, between 0 & 1. Default: {kDefaultLearningRateList}",
                             nargs='+',
                             required=False)
     arg_parser.add_argument('--force_cpu',
@@ -788,38 +792,37 @@ def parse_args():
     arg_parser.add_argument('--batch_size',
                             type=unsigned_int,
                             action='store',
-                            help='Batch size used during processing',
+                            help=f"Batch size used during processing. Zero means 'No Batching'. Default: {kBatchSize}",
                             required=False)
     arg_parser.add_argument('--epochs',
                             metavar='N_EPOCHS',
                             type=unsigned_int,
                             action='store',
-                            help='Max number of epochs for training',
+                            help=f'Max number of epochs for training. Default: {kNumEpochs}',
                             required=False)
     arg_parser.add_argument('--early_stop_patience',
                             metavar='PATIENCE',
                             type=unsigned_int,
                             action='store',
-                            help='Number of epochs to wait for change before stopping training',
+                            help=f"Number of epochs to wait for change before stopping training. Default: {kEarlyStopPatience}",
                             required=False)
     arg_parser.add_argument('--common_value_threshold',
                             metavar='THRESHOLD',
                             type=float_range(0, 1),
                             action='store',
-                            help='Used to drop columns with the same value in the specified percentage of entries. Value between 0 & 1',
+                            help='Used to drop columns with the same value in the specified percentage of entries. Value between 0 & 1. Default: {kSameValueInColumnThreshold}',
                             required=False)
     arg_parser.add_argument('--test_split',
                             metavar='SPLIT',
                             type=float_range(0, 1),
                             action='store',
-                            help='The ratio of the dataset used for testing. Will also be used for validation. Remainder is for training.',
+                            help='The ratio of the dataset used for testing. Will also be used for validation. Remainder is for training. Default: {kTestDataRatio}',
                             required=False)
 
     # Load any arguments passed to the script
     args = arg_parser.parse_args(sys.argv[1:])
 
     # Update global variable values from any arguments passed to the script
-    global kUseGPU, kBatchSize, kNumEpochs, kEarlyStopPatience, kSameValueInColumnThreshold, kTestDataRatio
     if args.force_cpu:
         kUseGPU = False
     if args.batch_size is not None:
