@@ -307,25 +307,19 @@ class PhishingDetector:
         # create a DataLoader from it.
         y_train_tensor = y_train_tensor.unsqueeze(1)
         train_dataset = TensorDataset(x_train_tensor, y_train_tensor)
-        train_dataloader = DataLoader(train_dataset,
-                                      batch_size=batch_size_train,
-                                      pin_memory=use_gpu)
+        train_dataloader = DataLoader(train_dataset, batch_size=batch_size_train)
 
         # Stuff x_validate_tensor, y_validate_tensor into a TensorDataset and
         # create a DataLoader from it.
         y_validate_tensor = y_validate_tensor.unsqueeze(1)
         validate_dataset = TensorDataset(x_validate_tensor, y_validate_tensor)
-        validate_dataloader = DataLoader(validate_dataset,
-                                         batch_size=batch_size_validate,
-                                         pin_memory=use_gpu)
+        validate_dataloader = DataLoader(validate_dataset, batch_size=batch_size_validate)
 
         # Stuff x_test_tensor, y_test_tensor into a TensorDataset and
         # create a DataLoader from it.
         y_test_tensor = y_test_tensor.unsqueeze(1)
         test_dataset = TensorDataset(x_test_tensor, y_test_tensor)
-        test_dataloader = DataLoader(test_dataset,
-                                     batch_size=batch_size_test,
-                                     pin_memory=use_gpu)
+        test_dataloader = DataLoader(test_dataset, batch_size=batch_size_test)
 
         return (x_train_tensor, y_train_tensor,
                 x_validate_tensor, y_validate_tensor,
