@@ -569,8 +569,9 @@ class PhishingDetector:
 
 
 def stats_str():
+    full_dataset_str = "Full Dataset"
     return f"-- Stats --\n" \
-           f"\tBatch Size:                       {kBatchSize if kBatchSize != 0 else "'Full Dataset'"}\n" \
+           f"\tBatch Size:                       {kBatchSize if kBatchSize != 0 else full_dataset_str}\n" \
            f"\tEarly Stop Patience:              {kEarlyStopPatience}\n" \
            f"\tCommon Column Value Threshold:    {kSameValueInColumnThreshold}\n" \
 
