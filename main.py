@@ -6,6 +6,7 @@
 import argparse
 from datetime import timedelta
 import matplotlib.pyplot as plt
+import numpy as np
 import os
 import sys
 import time
@@ -61,14 +62,6 @@ def stats_str():
            f"\tCommon Column Value Threshold:    {kSameValueInColumnThreshold}\n" \
            f"\tNumber of Folds:                  {kNumKFolds}\n"\
            f"{'' if kValidateDataRatio > 0 else epoch_str}"
-
-
-def write_metrics_to_disk(metrics_path, header, metrics):
-    # Write the results to metrics_path. If metrics_path already exists this will overwrite it.
-    with open(metrics_path, 'w') as fp:
-        fp.write(f"{header}\n{stats_str()}\n")
-        fp.write(f"-- Metrics in Accuracy Descending Order --\n")
-        [fp.write(f"{i}\n") for _, i in metrics]
 
 
 def main():
