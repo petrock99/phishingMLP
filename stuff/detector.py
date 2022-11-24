@@ -425,8 +425,8 @@ class PhishingDetector:
     def plot_k_fold(self):
         global kNumKFolds
         cv = self.k_fold
-        X = self.x_train_tensor
-        y = self.y_train_tensor
+        X = self.x_train_tensor.cpu()
+        y = self.y_train_tensor.cpu()
         n_splits = kNumKFolds
         cmap_data = plt.cm.Paired
         cmap_cv = plt.cm.coolwarm
@@ -434,7 +434,7 @@ class PhishingDetector:
 
         # Generate the training/testing visualizations for each CV split
         fig, ax = plt.subplots(figsize=(6, 3))
-        for ii, (tr, tt) in enumerate(cv.split(X=X.cpu(), y=y.cpu())):
+        for ii, (tr, tt) in enumerate(cv.split(X=X, y=y.)):
             # Fill in indices with the training/test groups
             indices = np.array([np.nan] * len(X))
             indices[tt] = 1
