@@ -434,7 +434,7 @@ class PhishingDetector:
 
         # Generate the training/testing visualizations for each CV split
         fig, ax = plt.subplots(figsize=(6, 3))
-        for ii, (tr, tt) in enumerate(cv.split(X=X, y=y)):
+        for ii, (tr, tt) in enumerate(cv.split(X=X.cpu(), y=y.cpu())):
             # Fill in indices with the training/test groups
             indices = np.array([np.nan] * len(X))
             indices[tt] = 1
