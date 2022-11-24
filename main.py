@@ -102,12 +102,12 @@ def main():
                               f"-- Metrics in Accuracy Descending Order --\n")
 
         # Print where/how to view the metrics during processing
-        # 'head -n 26' will print the first 26 lines of the file, which are the
+        # 'head -n 35' will print the first 35 lines of the file, which are the
         # metrics for the best run available.
         print(f"View metrics live via either:"
-              f"\n\twatch head -n 26 \"{os.path.abspath(metrics_path)}\""
+              f"\n\twatch head -n 35 \"{os.path.abspath(metrics_path)}\""
               f"\n\t\tor"
-              f"\n\twhile :; do clear; head -n 26 \"{os.path.abspath(metrics_path)}\"; sleep 2; done")
+              f"\n\twhile :; do clear; head -n 35 \"{os.path.abspath(metrics_path)}\"; sleep 2; done")
 
         for n_hidden_list in n_hidden_lists:
             for learning_rate in learning_rate_list:
