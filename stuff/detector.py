@@ -558,7 +558,7 @@ class PhishingDetector:
         results = {}
 
         # K-fold Cross Validation model evaluation
-        for fold, (train_ids, test_ids) in enumerate(self.k_fold.split(self.x_train_tensor, self.y_train_tensor)):
+        for fold, (train_ids, test_ids) in enumerate(self.k_fold.split(self.x_train_tensor.cpu(), self.y_train_tensor.cpu())):
 
             # Build subsets of self.train_dataset for the specified indexes
             train_subdataset = torch.utils.data.Subset(self.train_dataset, train_ids)
