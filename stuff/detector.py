@@ -5,6 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import math
 import os
+from PIL import Image
 import seaborn as sns
 from stuff.model import BinaryMLPModel
 from stuff import utils
@@ -478,6 +479,13 @@ class PhishingDetector:
         plt.clf()
         plt.cla()
 
+    # Create a path to the .png file with the stats for this model in the name.
+    # e.g. "[5, 5]-0.001-2-result.png" or "[5, 5]-0.001-result.png"
+    def plot_results_path(self, fold=None):
+        fold_str = f"-{fold}" if fold is not None else ""
+        return os.path.join(self.results_path,
+                            f"{self.model.n_hiddens_list}-{self.learning_rate}{fold_str}-results.png")
+
     def plot_results(self, test_accuracy, test_auc,
                      min_validate_loss, min_validate_loss_epoch,
                      max_validate_accuracy, max_validate_accuracy_epoch,
@@ -514,9 +522,7 @@ class PhishingDetector:
 
         # Create a path to the .png file with the stats for this model in the name.
         # e.g. "[5, 5]-0.001-2-result.png"
-        fold_str = f"-{fold}" if fold is not None else ""
-        plot_file_path = os.path.join(self.results_path,
-                                      f"{self.model.n_hiddens_list}-{self.learning_rate}{fold_str}-results.png")
+        plot_file_path = self.plot_results_path(fold)
         plt.tight_layout()
         # Save the plot image to disk
         plt.savefig(plot_file_path)
@@ -525,6 +531,8 @@ class PhishingDetector:
         plt.clf()
         plt.cla()
         plt.close(fig)
+
+        return plot_file_path
 
     def save_model(self):
         assert os.path.exists(self.results_path), f"Expected '{self.results_path}' to exist"
@@ -556,6 +564,7 @@ class PhishingDetector:
         test_conf_matrix_sum = np.array([[0, 0], [0, 0]], dtype=float)
         fold_stats_str_list = []
         results = {}
+        plot_img_paths = []
 
         # K-fold Cross Validation model evaluation
         for fold, (train_ids, test_ids) in enumerate(self.k_fold.split(self.x_train_tensor.cpu(), self.y_train_tensor.cpu())):
@@ -576,12 +585,13 @@ class PhishingDetector:
              test_recall,
              test_f1,
              test_conf_matrix,
-             fold_stats_str) = self.run(train_dataloader,
-                                        test_dataloader,
-                                        num_epochs,
-                                        n_hidden_list,
-                                        learning_rate,
-                                        fold)
+             fold_stats_str,
+             plot_img_path) = self.run(train_dataloader,
+                                       test_dataloader,
+                                       num_epochs,
+                                       n_hidden_list,
+                                       learning_rate,
+                                       fold)
 
             test_accuracy_sum += test_accuracy
             test_auc_sum += test_auc
@@ -590,6 +600,7 @@ class PhishingDetector:
             test_f1_sum += test_f1
             test_conf_matrix_sum += test_conf_matrix
             fold_stats_str_list.append(fold_stats_str)
+            plot_img_paths.append(plot_img_path)
 
             results.update({ fold : (test_accuracy,
                                      test_auc,
@@ -598,6 +609,21 @@ class PhishingDetector:
                                      test_f1,
                                      test_conf_matrix,
                                      fold_stats_str) })
+
+        # combine the fold images vertically into a single image
+        images = [Image.open(x) for x in plot_img_paths]
+        widths, heights = zip(*(i.size for i in images))
+        max_width = max(widths)
+        total_height = sum(heights)
+        new_im = Image.new('RGB', (max_width, total_height))
+        y_offset = 0
+        for im in images:
+            new_im.paste(im, (0, y_offset))
+            y_offset += im.size[1]
+        # Save the combo image into a new file
+        new_im.save(self.plot_results_path())
+        # delete the old image files
+        [os.remove(x) for x in plot_img_paths]
 
         # Return the average of each measure
         n_folds = len(fold_stats_str_list)
@@ -675,13 +701,13 @@ class PhishingDetector:
         elapsed_time = timedelta(seconds=time.time() - start_time)
 
         # Plot the accuracies & losses
-        self.plot_results(test_accuracy, test_auc,
-                          min_validate_loss, min_validate_loss_epoch,
-                          max_validate_accuracy, max_validate_accuracy_epoch,
-                          train_accuracy_list, validate_accuracy_list,
-                          train_auc_list, validate_auc_list,
-                          train_loss_list, validate_loss_list,
-                          fold)
+        plot_img_path = self.plot_results(test_accuracy, test_auc,
+                                          min_validate_loss, min_validate_loss_epoch,
+                                          max_validate_accuracy, max_validate_accuracy_epoch,
+                                          train_accuracy_list, validate_accuracy_list,
+                                          train_auc_list, validate_auc_list,
+                                          train_loss_list, validate_loss_list,
+                                          fold)
         fold_stats_str = f"fold: {fold} -- Accuracy: {test_accuracy:0.4f}, AUC: {test_auc:0.4f}, Min Val Loss: {min_validate_loss:0.4f}, Min Val Loss Epoch: {min_validate_loss_epoch}, Elapsed Time: {elapsed_time}"
         print(fold_stats_str)
 
@@ -691,7 +717,8 @@ class PhishingDetector:
                 test_recall,
                 test_f1,
                 test_conf_matrix,
-                fold_stats_str)
+                fold_stats_str,
+                plot_img_path)
 
     # Called once per epoch
     def train_epoch(self, train_dataloader):
