@@ -642,23 +642,23 @@ class PhishingDetector:
             validate_accuracy_list.append(validate_accuracy)
             validate_auc_list.append(validate_auc)
 
-            # Keep track of the max accuracy during validation, and its corresponding
-            # model state dictionary. It will be loaded back into the model for testing.
-            # This helps prevent over fitting.
+            # Keep track of the max accuracy during validation for plotting purposes
             if max_validate_accuracy < validate_accuracy:
                 max_validate_accuracy = validate_accuracy
                 max_validate_accuracy_epoch = epoch
-                self.save_best_model()
 
-            # Keep track of the minimum loss during validation for plotting purposes
+            # Keep track of the minimum loss during validation, and its corresponding
+            # model state dictionary. It will be loaded back into the model for testing.
+            # This helps prevent over fitting.
             if validate_loss < min_validate_loss:
                 min_validate_loss = validate_loss
                 min_validate_loss_epoch = epoch
+                self.save_best_model()
 
             # If the max validation accuracy hasn't improved in a while then bail out.
             # The model has started to overfit and likely will not improve if we continue.
             global kEarlyStopPatience
-            if 50 < epoch and max_validate_accuracy_epoch + kEarlyStopPatience < epoch:
+            if 50 < epoch and min_validate_loss_epoch + kEarlyStopPatience < epoch:
                 break
 
         # Load the best model that was generated during training in order
@@ -682,7 +682,7 @@ class PhishingDetector:
                           train_auc_list, validate_auc_list,
                           train_loss_list, validate_loss_list,
                           fold)
-        fold_stats_str = f"fold: {fold} -- Accuracy: {test_accuracy:0.4f}, AUC: {test_auc:0.4f}, Max Val Acc: {max_validate_accuracy:0.4f}, Max Val Acc Epoch: {max_validate_accuracy_epoch}, Elapsed Time: {elapsed_time}"
+        fold_stats_str = f"fold: {fold} -- Accuracy: {test_accuracy:0.4f}, AUC: {test_auc:0.4f}, Min Val Loss: {min_validate_loss:0.4f}, Min Val Loss Epoch: {min_validate_loss_epoch}, Elapsed Time: {elapsed_time}"
         print(fold_stats_str)
 
         return (test_accuracy,

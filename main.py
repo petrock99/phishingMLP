@@ -4,8 +4,9 @@
 # Press Double ⇧ to search everywhere for classes, files, tool windows, actions, and settings.
 
 import argparse
-import os
+from datetime import timedelta
 import matplotlib.pyplot as plt
+import os
 import sys
 import time
 
@@ -104,7 +105,7 @@ def main():
         # Set up the metrics file and its initial text
         metrics_path = os.path.join(ds4_tran.results_path, f"{utils.strip_extension(csv_name)}-metrics.txt")
         logger = SortedLogger(metrics_path,
-                              f"{header_str}\n" \
+                              f"{header_str}\n"
                               f"-- Metrics in Accuracy Descending Order --\n")
 
         # Print where/how to view the metrics during processing
@@ -134,23 +135,22 @@ def main():
                 test_recall = results_dict["recall"]
                 test_f1 = results_dict["f1"]
                 test_conf_matrix = results_dict["conf_matrix"]
-                fold_stats_str_list = results_dict["conf_matrix"]
+                fold_stats_str_list = results_dict["fold_stats_str_list"]
 
                 # Build & print the metrics string
                 false_positive_rate, false_negative_rate = utils.calc_failure_rate(test_conf_matrix)
                 cv_elapsed_time = timedelta(seconds=time.time() - cv_start_time)
                 fold_stats_str = '\n'.join(fold_stats_str_list)
-                metrics_str = f"{fold_stats_str}\n\n" \
-                              f"Accuracy:             {test_accuracy}\n" \
-                              f"Area Under Curve:     {test_auc}\n" \
-                              f"Precision:            {test_precision}\n" \
-                              f"Recall:               {test_recall}\n" \
-                              f"F1:                   {test_f1}\n" \
-                              f"False Pos Rate:       {false_positive_rate}\n" \
-                              f"False Neg Rate:       {false_negative_rate}\n" \
-                              f"Elapsed Time:         {cv_elapsed_time}\n" \
+                metrics_str = f"Accuracy %:          {(test_accuracy * 100.0):0.4f}\n" \
+                              f"Area Under Curve %:  {(test_auc * 100.0):0.4f}\n" \
+                              f"Precision %:         {(test_precision * 100.0):0.4f}\n" \
+                              f"Recall %:            {(test_recall * 100.0):0.4f}\n" \
+                              f"F1 %:                {(test_f1 * 100.0):0.4f}\n" \
+                              f"False Pos %:         {(false_positive_rate * 100.0):0.4f}\n" \
+                              f"False Neg %:         {(false_negative_rate * 100.0):0.4f}\n" \
+                              f"Elapsed Time:        {cv_elapsed_time}\n" \
                               f"Confusion Matrix:\n" \
-                              f"{test_conf_matrix}\n"
+                              f"{np.round(test_conf_matrix)}\n"
 
                 # If the accuracy is above a threshold then consider it a good run
                 if test_accuracy > kHighAccuracyThreshold:
@@ -162,7 +162,9 @@ def main():
                     print(f"Test accuracy below threshold. Accuracy: {test_accuracy}, Area Under Curve: {test_auc}, Elapsed Time: {cv_elapsed_time}")
 
                 # Add the header to the metrics string
-                metrics_str = f"{header_str}{header_body_str}\n{metrics_str}"
+                metrics_str = f"{header_str}{header_body_str}\n" \
+                              f"{fold_stats_str}\n\n" \
+                              f"{metrics_str}"
                 # Add metrics_str to the logger. It will sort all the metrics by test_accuracy
                 # and write them to metrics_path so we can view the changhes live in a Terminal
                 # window. See above comments about the 'watch' command.
@@ -225,7 +227,9 @@ def parse_args():
                raise argparse.ArgumentTypeError(f"No such file or directory: {csv_path} or {zip_path}")
         return name
 
-    global kUseGPU, kBatchSize, kNumEpochs, kEarlyStopPatience, kSameValueInColumnThreshold, kNumKFolds, kValidateDataRatio
+    global kUseGPU, kBatchSize, kNumEpochs, \
+           kEarlyStopPatience, kSameValueInColumnThreshold, kNumKFolds, \
+           kValidateDataRatio, kHighAccuracyThreshold
     arg_parser = argparse.ArgumentParser(fromfile_prefix_chars='@')  # Supports putting arguments in a config file
     arg_parser.add_argument('--csv_names',
                             metavar='CSV_NAME',
@@ -269,6 +273,12 @@ def parse_args():
                             type=float_range(0, 1),
                             action='store',
                             help='The ratio of the dataset used for validation, and Early Stopping, during training. Remainder of the dataset will be used for training. Default: {kValidateDataRatio}',                            required=False)
+    arg_parser.add_argument('--accuracy_threshold',
+                            metavar='THRESHOLD',
+                            type=float_range(0, 1),
+                            action='store',
+                            help='Minimum accuracy needed to print results to the console. Default: {kHighAccuracyThreshold}',
+                            required=False)
     arg_parser.add_argument('--early_stop_patience',
                             metavar='PATIENCE',
                             type=unsigned_int,
@@ -300,6 +310,8 @@ def parse_args():
         kNumEpochs = args.epochs
     if args.validation_split is not None:
         kValidateDataRatio = args.validation_split
+    if args.accuracy_threshold is not None:
+        kHighAccuracyThreshold = args.accuracy_threshold
     if args.early_stop_patience is not None:
         kEarlyStopPatience = args.early_stop_patience
     if args.common_value_threshold is not None:
