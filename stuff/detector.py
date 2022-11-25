@@ -3,9 +3,9 @@ from datetime import timedelta
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import math
 import os
 from PIL import Image
+import random
 import seaborn as sns
 from stuff.model import BinaryMLPModel
 from stuff import utils
@@ -13,13 +13,14 @@ import time
 import zipfile
 
 from sklearn import preprocessing
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.metrics import ( accuracy_score,
                               roc_auc_score,
                               confusion_matrix,
                               precision_score,
                               recall_score,
                               f1_score )
+from sklearn.utils import shuffle
 
 import torch
 import torch.nn
@@ -42,8 +43,7 @@ kUseGPU = None
 class PhishingDetector:
     def __init__(self, csv_name):
         # Set RNG seeds for more reproducible results
-        torch.manual_seed(12345)
-        np.random.seed(12345)
+        self.reset_RNG()
 
         # These are set up at runtime
         self.n_hiddens_list = []
@@ -77,8 +77,7 @@ class PhishingDetector:
 
     def build_model(self, n_hiddens_list, learning_rate):
         # Set/Reset RNG seeds for more reproducible results
-        torch.manual_seed(12345)
-        np.random.seed(12345)
+        self.reset_RNG()
 
         # (Re)Create the model.
         # Deletes the old model, if it exists, so a new one can be created
@@ -91,6 +90,13 @@ class PhishingDetector:
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
         self.best_state_dict = {}
         # print(self.model)
+
+    @staticmethod
+    def reset_RNG():
+        torch.manual_seed(12345)
+        torch.cuda.manual_seed(12345)
+        np.random.seed(12345)
+        random.seed(12345)
 
     @staticmethod
     def set_constants(constant_dict):
@@ -197,106 +203,31 @@ class PhishingDetector:
         return df_data
 
     @staticmethod
-    def train_validate_split(x, y):
-        # If the ratio is zero there is nothing to split
-        global kValidateDataRatio
-        if kValidateDataRatio <= 0:
-            return x, y, None, None
-
-        # Set up a stratified training / validation split, keeping the legit/phish ratio
-        # in each split intact.
-        # We also don't want to shuffle the resulting splits. That will be handled by
-        # the data loaders
-        #
-        # It would be nice to be able to use sklearn.train_test_split but it doesn't
-        # support 'stratify' when suffle == False.
-        # x_train, x_validate, y_train, y_validate = train_test_split(x,
-        #                                                             y,
-        #                                                             test_size=kValidateDataRatio,
-        #                                                             shuffle=True,
-        #                                                             stratify=y)
-
-        # Calculate the number of items to use for validation
-        n_validate = math.floor(len(y) * kValidateDataRatio)
-        n_train = len(y) - n_validate
-
-        # Pre-allocate the numpy arrays
-        x_train = np.empty([n_train, len(x[0])], dtype=x.dtype)
-        y_train = np.empty([n_train], dtype=y.dtype)
-        x_validate = np.empty([n_validate, len(x[0])], dtype=x.dtype)
-        y_validate = np.empty([n_validate], dtype=y.dtype)
-
-        # Predicate to determine which entries in y are legit vs phishing
-        def predicate(val, expected):
-            return val == expected
-
-        # Generators to return the indexes of all the
-        # phishing & legitimate entries in y.
-        phishing_indexes = [i for i, val in enumerate(y) if predicate(val, 1)]
-        legitimate_indexes = [i for i, val in enumerate(y) if predicate(val, 0)]
-
-        # Calculate the ratio of phishing to legitimate entries
-        # The ratio should have been set by load_data to 50/50, but calculate it anyway.
-        phishing_ratio = len(phishing_indexes) / len(y)
-        n_validate_phishing = math.floor(n_validate * phishing_ratio)
-
-        # Copy the first 'n_validate_phishing' phishing entries in x & y into
-        # x_validate & y_validate. The remainder go into x_train & y_train
-        val_index = 0
-        train_index = 0
-        for i in phishing_indexes:
-            if val_index < n_validate_phishing:
-                x_validate[val_index] = x[i]
-                y_validate[val_index] = y[i]
-                val_index += 1
-            else:
-                x_train[train_index] = x[i]
-                y_train[train_index] = y[i]
-                train_index += 1
-
-        # Copy the legitimate validation entries in x & y into the remaining
-        # slots in x_validate & y_validate. The rest go into x_train & y_train.
-        for i in legitimate_indexes:
-            if val_index < n_validate:
-                x_validate[val_index] = x[i]
-                y_validate[val_index] = y[i]
-                val_index += 1
-            else:
-                x_train[train_index] = x[i]
-                y_train[train_index] = y[i]
-                train_index += 1
-
-        assert (val_index == n_validate)
-        assert (train_index == n_train)
-        assert (np.array_equal(x_train[-1], x[-1]))
-        assert (np.array_equal(y_train[-1], y[-1]))
-
-        return (x_train,
-                y_train,
-                x_validate,
-                y_validate)
-
-    @staticmethod
     def split_data(df_data, device):
         # Extract the raw data and label from df_data
         global kLabelColumn
-        x = df_data.loc[:, df_data.columns != kLabelColumn]     # Don't include 'Label'
-        y = df_data[kLabelColumn]
+        x_series = df_data.loc[:, df_data.columns != kLabelColumn]     # Don't include 'Label'
+        y_series = df_data[kLabelColumn]
 
         # Use a MinMaxScaler to scale all the features to normalized values
-        x_scaled = preprocessing.MinMaxScaler().fit_transform(x.values)
-        y = y.values
+        # Also convert the Pandas Series objects into Numpy Arrays
+        x_np = preprocessing.MinMaxScaler().fit_transform(x_series.values)
+        y_np = y_series.values
         # print(f"Scaled values\n{x_scaled}\n"
 
         global kValidateDataRatio
         if kValidateDataRatio > 0:
             (x_train,
-             y_train,
              x_validate,
-             y_validate) = PhishingDetector.train_validate_split(x_scaled, y)
+             y_train,
+             y_validate) = train_test_split(x_np,
+                                            y_np,
+                                            test_size=kValidateDataRatio,
+                                            shuffle=True,
+                                            random_state=42,
+                                            stratify=y_np)
         else:
-            x_train = x_scaled
-            y_train = y
+            x_train, y_train = shuffle(x_np, y_np, random_state=42)
             x_validate = None
             y_validate = None
 
@@ -326,7 +257,7 @@ class PhishingDetector:
 
         # Set up the k-fold object that will handle the shuffling of the data during .split(...)
         global kNumKFolds
-        k_fold = StratifiedKFold(n_splits=kNumKFolds, shuffle=True, random_state=42)
+        k_fold = StratifiedKFold(n_splits=kNumKFolds)
 
         return (x_train_tensor, y_train_tensor, train_dataset,
                 x_validate_tensor, y_validate_tensor, validate_dataloader,
@@ -467,7 +398,7 @@ class PhishingDetector:
             ylabel="Fold",
             ylim=[n_splits + 1.2, -0.2]
         )
-        ax.set_title(f"Shuffled {type(cv).__name__}", fontsize=15)
+        ax.set_title(f"{type(cv).__name__} of Shuffled Data", fontsize=15)
 
         ax.legend(["Testing set", "Training set"], loc=(1.02, 0.8))
         # Make the legend fit

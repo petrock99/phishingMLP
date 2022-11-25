@@ -33,7 +33,10 @@ kDatasetsPath = "./datasets"
 # Define some default values
 kDefaultCSVNameList = ["DS4Tan.csv"]
 kDefaultLearningRateList = [0.01, 0.001, 0.0001]
-kDefaultNumHiddenLists = [[50, 50], [100, 100],
+kDefaultNumHiddenLists = [[5, 5], [10, 10],
+                          [5, 10], [10, 5],
+                          [10, 25], [25, 10],
+                          [50, 50], [100, 100],
                           [50, 50, 50], [100, 100, 100],
                           [200, 200], [300, 300],
                           [400, 400], [500, 500],

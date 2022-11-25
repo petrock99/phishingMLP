@@ -1,6 +1,6 @@
 name: phishingMLP
 channels:
-  - pytorch
+  - pytorch		# must be before conda-forge
   - conda-forge
   - defaults
 dependencies:
