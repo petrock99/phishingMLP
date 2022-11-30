@@ -34,7 +34,7 @@ kLabelColumn = 'Label'
 kBatchSize = None
 kDatasetsPath = None
 kSameValueInColumnThreshold = None
-kValidateDataRatio = None
+kValidateDataPercentage = None
 kNumKFolds = None
 kEarlyStopPatience = None
 kUseGPU = None
@@ -100,11 +100,11 @@ class PhishingDetector:
 
     @staticmethod
     def set_constants(constant_dict):
-        global kBatchSize, kDatasetsPath, kSameValueInColumnThreshold, kValidateDataRatio, kNumKFolds, kEarlyStopPatience, kUseGPU
+        global kBatchSize, kDatasetsPath, kSameValueInColumnThreshold, kValidateDataPercentage, kNumKFolds, kEarlyStopPatience, kUseGPU
         kBatchSize = constant_dict["kBatchSize"]
         kDatasetsPath = constant_dict["kDatasetsPath"]
         kSameValueInColumnThreshold = constant_dict["kSameValueInColumnThreshold"]
-        kValidateDataRatio = constant_dict["kValidateDataRatio"]
+        kValidateDataPercentage = constant_dict["kValidateDataPercentage"]
         kNumKFolds = constant_dict["kNumKFolds"]
         kEarlyStopPatience = constant_dict["kEarlyStopPatience"]
         kUseGPU = constant_dict["kUseGPU"]
@@ -215,14 +215,14 @@ class PhishingDetector:
         y_np = y_series.values
         # print(f"Scaled values\n{x_scaled}\n"
 
-        global kValidateDataRatio
-        if kValidateDataRatio > 0:
+        global kValidateDataPercentage
+        if kValidateDataPercentage > 0:
             (x_train,
              x_validate,
              y_train,
              y_validate) = train_test_split(x_np,
                                             y_np,
-                                            test_size=kValidateDataRatio,
+                                            test_size=kValidateDataPercentage,
                                             shuffle=True,
                                             random_state=42,
                                             stratify=y_np)
@@ -264,11 +264,11 @@ class PhishingDetector:
                 k_fold)
 
     def data_split_str(self, csv_name):
-        global kValidateDataRatio
-        training_percent = (1.0 - kValidateDataRatio) * 100
-        validation_percent = kValidateDataRatio * 100.0
+        global kValidateDataPercentage
+        training_percent = (1.0 - kValidateDataPercentage) * 100
+        validation_percent = kValidateDataPercentage * 100.0
         validate_str = f"\tValidate:   {utils.tensor_size_pretty_str(self.x_validate_tensor.shape)} / {utils.tensor_size_pretty_str(self.y_validate_tensor.shape)}\n" \
-                       if kValidateDataRatio > 0 else ''
+                       if kValidateDataPercentage > 0 else ''
         return f"-- Dataset '{csv_name}' --\n" \
                f"\tSplit:      {training_percent} / {validation_percent}\n" \
                f"\tAll:        {self.df_data.shape}\n" \

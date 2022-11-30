@@ -24,9 +24,9 @@ kBatchSize = 0                          # 0 == no batching.
 kNumKFolds = 5
 kEarlyStopPatience = 150
 kNumEpochs = 5000                       # High epochs because Early Stopping is supported
-kHighAccuracyThreshold = 0.965          # 0 <-> 1.0
-kSameValueInColumnThreshold = 0.95      # 0 <-> 1.0
-kValidateDataRatio = 0.2                # 0 <-> 1.0
+kHighAccuracyThreshold = 0.965          # [0.0, 1.0]
+kSameValueInColumnThreshold = 0.95      # [0.0, 1.0]
+kValidateDataPercentage = 0.2           # [0.0, 1.0]
 kUseGPU = torch.cuda.is_available()
 kDatasetsPath = "./datasets"
 
@@ -64,7 +64,7 @@ def stats_str():
            f"\tEarly Stop Patience:              {kEarlyStopPatience}\n" \
            f"\tCommon Column Value Threshold:    {kSameValueInColumnThreshold}\n" \
            f"\tNumber of Folds:                  {kNumKFolds}\n"\
-           f"{'' if kValidateDataRatio > 0 else epoch_str}"
+           f"{'' if kValidateDataPercentage > 0 else epoch_str}"
 
 
 def main():
@@ -84,7 +84,7 @@ def main():
     PhishingDetector.set_constants({ "kBatchSize" : kBatchSize,
                                      "kDatasetsPath" : kDatasetsPath,
                                      "kSameValueInColumnThreshold" : kSameValueInColumnThreshold,
-                                     "kValidateDataRatio" : kValidateDataRatio,
+                                     "kValidateDataPercentage" : kValidateDataPercentage,
                                      "kNumKFolds" : kNumKFolds,
                                      "kEarlyStopPatience" : kEarlyStopPatience,
                                      "kUseGPU" : kUseGPU })
@@ -190,7 +190,7 @@ def parse_args():
             except ValueError:
                 raise argparse.ArgumentTypeError("Expected a floating point number")
             if f < min or f > max:
-                raise argparse.ArgumentTypeError(f"Expected range of [{min} .. {max}]")
+                raise argparse.ArgumentTypeError(f"Expected value in the range of [{min}, {max}]")
             return f
 
         # Return function handle to checking function
@@ -225,32 +225,35 @@ def parse_args():
 
     global kUseGPU, kBatchSize, kNumEpochs, \
            kEarlyStopPatience, kSameValueInColumnThreshold, kNumKFolds, \
-           kValidateDataRatio, kHighAccuracyThreshold
+           kValidateDataPercentage, kHighAccuracyThreshold
+
+    defaultCSVNameListStr = ', '.join(kDefaultCSVNameList)
+    defaultLearningRateListStr = ', '.join(str(lr) for lr in kDefaultLearningRateList)
     arg_parser = argparse.ArgumentParser(fromfile_prefix_chars='@')  # Supports putting arguments in a config file
     arg_parser.add_argument('--csv_names',
                             metavar='CSV_NAME',
                             type=csv_filename,
                             action='store',
-                            help=f'One or more .csv names. Default: {kDefaultCSVNameList}',
+                            help=f"One or more .csv or .csv.zip names inside the './datasets' directory. Default: '{defaultCSVNameListStr}'",
                             nargs='+',
                             required=False)
     arg_parser.add_argument('--hidden_layers',
                             metavar='N_NODES',
                             type=unsigned_int,
                             action='store',
-                            help='List of the number of nodes in each hidden layer',
+                            help=f"Space separated list of the numbers representing the nodes in each hidden layer. Useful for testing a specific layer configuration. Default: A matrix of {len(kDefaultNumHiddenLists)} hidden layer configurations.",
                             nargs='+',
                             required=False)
     arg_parser.add_argument('--learning_rates',
                             metavar='LEARNING_RATE',
-                            type=float_range(0,1),
+                            type=float_range(0, 1),
                             action='store',
-                            help=f"List of learning rates to train with, between 0 & 1. Default: {kDefaultLearningRateList}",
+                            help=f"Space separated list of learning rates to train with. Values between 0 & 1. Default: '{defaultLearningRateListStr}'",
                             nargs='+',
                             required=False)
     arg_parser.add_argument('--force_cpu',
                             action='store_true',
-                            help='Force running on the CPU instead of GPU',
+                            help='Force running on the CPU instead of GPU. Default: Run on GPU if available, otherwise CPU.',
                             default=False,
                             required=False)
     arg_parser.add_argument('--batch_size',
@@ -262,36 +265,37 @@ def parse_args():
                             metavar='N_EPOCHS',
                             type=unsigned_int,
                             action='store',
-                            help=f'Max number of epochs for training. Default: {kNumEpochs}',
+                            help=f"Max number of epochs for training. A lower value is recommended if '--validation_split' is zero. Default: {kNumEpochs}",
                             required=False)
     arg_parser.add_argument('--validation_split',
                             metavar='SPLIT',
                             type=float_range(0, 1),
                             action='store',
-                            help='The ratio of the dataset used for validation, and Early Stopping, during training. Remainder of the dataset will be used for training. Default: {kValidateDataRatio}',                            required=False)
+                            help=f"The percentage of the dataset set aside for validation and Early Stopping during training. Remainder of the dataset will be used for training. Value between 0 & 1. Default: {kValidateDataPercentage}",
+                            required=False)
     arg_parser.add_argument('--accuracy_threshold',
                             metavar='THRESHOLD',
                             type=float_range(0, 1),
                             action='store',
-                            help='Minimum accuracy needed to print results to the console. Default: {kHighAccuracyThreshold}',
+                            help=f"Minimum accuracy percentage needed to print results to the console. Value between 0 & 1. Default: {kHighAccuracyThreshold}",
                             required=False)
     arg_parser.add_argument('--early_stop_patience',
                             metavar='PATIENCE',
                             type=unsigned_int,
                             action='store',
-                            help=f"Number of epochs to wait for change before stopping training. Default: {kEarlyStopPatience}",
+                            help=f"Number of epochs to wait for change before training is stopped. Ignored if '--validation_split' is zero. Default: {kEarlyStopPatience}",
                             required=False)
     arg_parser.add_argument('--common_value_threshold',
                             metavar='THRESHOLD',
                             type=float_range(0, 1),
                             action='store',
-                            help='Used to drop columns with the same value in the specified percentage of entries. Value between 0 & 1. Default: {kSameValueInColumnThreshold}',
+                            help=f"Minimum percentage of feature samples with the same value to allow. Value between 0 & 1. Default: {kSameValueInColumnThreshold}",
                             required=False)
     arg_parser.add_argument('--k_folds',
                             metavar='FOLDS',
                             type=unsigned_int,
                             action='store',
-                            help=f"Number of folders to use during k-fold validation. Default: {kNumKFolds}",
+                            help=f"Number of folds to use for K-Fold Validation. Default: {kNumKFolds}",
                             required=False)
 
     # Load any arguments passed to the script
@@ -305,7 +309,7 @@ def parse_args():
     if args.epochs is not None:
         kNumEpochs = args.epochs
     if args.validation_split is not None:
-        kValidateDataRatio = args.validation_split
+        kValidateDataPercentage = args.validation_split
     if args.accuracy_threshold is not None:
         kHighAccuracyThreshold = args.accuracy_threshold
     if args.early_stop_patience is not None:
