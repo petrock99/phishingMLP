@@ -8,7 +8,7 @@
 </center>
 
 ## Introduction
-This project is for a simple, CUDA GPU aware, script that implements a Binary Classifier Model Factory to help find the best set of hyperparameters for an MLP model. It was scoped as a phishing vs legitimate website classifier, but could be adapted for any binary classification task. It will run a grid style hyperparameter search against one or more datasets and use Stratified K-Fold Cross Validation to compare the performance of each model. The script will generate accuracy, loss & data mining graphs, along the results of each model configuration. As the script progresses it will write the results to a file sorted in descending order by accuracy. This allows the user to monitor the progress of the script and quickly see which model configurations are performing the best in real time.<br>
+This project is for a CUDA GPU aware script that implements a Binary Classifier Model Factory. It is designed to help find the best set of hyperparameters for an MLP model. It was scoped as a phishing vs legitimate website classifier, but could be adapted for any binary classification task. It will run a grid style hyperparameter search against one or more datasets and use Stratified K-Fold Cross Validation to compare the performance of each model. The script will generate accuracy, loss & data mining graphs, along the results of each model configuration. As the script progresses it will write the results to a file sorted in descending order by accuracy. This allows the user to monitor the progress of the script and quickly see which model configurations are performing the best in real time.<br>
 <br>
 
 ----
@@ -116,7 +116,7 @@ A 80/20 training/validation split of the dataset is used by default, configurabl
 <br>
 For each fold the script will process the training, validation & test sets in batches (configurable via __--batch_size__). Each batch accuracy and loss is averaged to produce the per fold accuracy and loss. The per fold accuracy and loss is averaged to find the overall accuracy and loss of the model. By default the script processes the entire dataset in one big batch. This greatly improved the speed of the script. The supplied datasets are relatively small and easily fit within GPU and CPU memory. Some investigation may be needed to speed up batching if larger datasets are used.<br>
 <br>
-The script will take advantage of GPUs that support CUDA. If the script is run on non-CUDA hardware it will use the CPU. __--force_cpu__ can be used to force the use of the CPU if necessary. In my experiments the GPU did not show significant speed improvement over CPU. That is likely a bug in the code that will need to be tracked down.<br>
+The script will take advantage of GPUs that support CUDA. If the script is run on non-CUDA hardware it will use the CPU. __--force_cpu__ can be used to force the use of the CPU. In my experiments the GPU did not show significant speed improvement over CPU. That is likely a bug in the code that will need to be tracked down.<br>
 <br>
 
 ----
@@ -124,14 +124,14 @@ The script will take advantage of GPUs that support CUDA. If the script is run o
 
 The script will create timestamped directories in the _./results_ directory to write the results of each dataset & model configuration into. The timestamp corresponds to the start time of processing each dataset. The directory name is in the format _"dataset year-month-day at hour.minute.second"_, for example _"DS4Tan 22-10-21 at 20.52.08"_. Using a timestamp in the folder name helps create a semi-unique folder name to avoid name collisions and to help differentiate & compare the results from multiple datasets and runs.<br>
 <br>
-If a model configuration performance meets or excedes an accuracy threshold the results of the model configurations performance will be printed. Otherwise a short message expressing the models low performance is printed. This threshold is configurable via __--accuracy_threshold__.<br>
+If a model configuration performance meets or excedes an accuracy threshold the results of the model performance will be printed. The results include the accuracy of each fold and percentages for the overall accuracy, area under the ROC curve, Precision, Recall, F1, False Positive & False Negative as well as the Confusion Matrix. If the overall accuracy is below the threshold a short message expressing the models low performance is printed. This threshold is configurable via __--accuracy_threshold__.<br>
 <br>
 An image file for each model configuration containing the accuracy & loss graphs of each fold will be generated in the timestamped results directory. An example graph is shown below. The file name format is _"[hidden layer list]-learning rate-results.png"_. For example, _"[50, 50]-0.001-results.png"_ represents a model configuration with two hidden layers with 50 nodes each and a learning rate of 0.001. _Training AUC_ & _Validation AUC_ represent the training and validation area under the ROC curve. _Max Val Accuracy_ and _Min Val Loss_, represented by the green dots in the graphs, indicates the maximum accuracy & minimum loss achieved during validation. _Min Val Loss_ also indicates the epoch at which the model state was saved for use during testing.
 <br>
 <center><img src="./example-graphs/results.png" alt="Example Results Graph" width="700" style="border:1px solid black;"/></center><br>
 <br>
 
-At the start of every run, a metrics file is created in the timestamped results directory with the format _"dataset-metrics.txt"_. For example, _"DS4Tan-metrics.txt"_. This file contains information about the dataset and model configuration as well as a list of results from each model that was processed. This includes the model configuration, data points about each fold, overall accuracy and other metrics to help analyze the performance of the model. This results list is sorted by accuracy in descending order and is continually updated throughout training. This allows the user to monitor the performance of each configuration live and get a good sense of how well the models are performing. One common method to view changes to a file live is by using the _watch -head_ command. It will keep the beginning of the file pinned to the top of the terminal window so the model configuration with the highest accuracy at that moment is always visible. The script will print out the proper command, and path to the metrics file, at the beginning of each run for easy copy and pasting into a separate terminal window.<br>
+At the start of every run, a metrics file is created in the timestamped results directory with the format _"dataset-metrics.txt"_. For example, _"DS4Tan-metrics.txt"_. This file contains information about the dataset and model configuration. In addition it contains a list of results from each model that was processed. This includes the model configuration, data points about each fold, overall accuracy and other metrics to help analyze the performance of the model. This results list is sorted by accuracy in descending order and is continually updated throughout training. This allows the user to monitor the performance of each configuration live and get a good sense of how well the models are performing. One common method to view changes to a file live is by using the _watch -head_ command. It will keep the beginning of the file pinned to the top of the terminal window so the model configuration with the highest accuracy at that moment is always visible. The script will print out the proper command, and path to the metrics file, at the beginning of each run, for easy copying and pasting into a separate terminal window.<br>
 
 ```
 -- Dataset 'DS4Tan.csv' --
@@ -247,7 +247,7 @@ Eight sample datasets are included with this project.
 	<li>
 		DS4_merged_generated.csv<br>
 		<ul style="list-style: none;">
-			<li>A generated dataset based on DS4Tan_1.csv and DS4Tan_2.csv. It is unclear, at this time, how the samples were generated. A major issue with this dataset is that all of the floating point values have been converted to integer. This makes features like the PctExtHyperlinks, and similar percentage based features with values between 0 and 1, into binary values of either 0 or 1. This severely limits the usefulness of the dataset because the PctXXX features are major distinguishing features. Efforts are underway to regenerate this dataset with the floating point values intact.
+			<li>A generated dataset based on DS4Tan_1.csv and DS4Tan_2.csv. It is unclear, at this time, how the samples were generated. A major issue with this dataset is that all of the floating point values have been rounded to the nearest integer. This makes features, like the PctExtHyperlinks, into binary values of either 0 or 1. This severely limits the usefulness of the dataset because the PctXXX features are major distinguishing features. Efforts are underway to regenerate this dataset with the floating point values reinstated.
 		</ul>
 	</li>
 	<li>
@@ -262,46 +262,73 @@ Eight sample datasets are included with this project.
 ----
 ## Experiments
 
-Various experiments were performed during development of this project using the included datasets. The script was initially developed on the DS4Tan.csv dataset with a simple train/test Hold-Out validation scheme. It achieved accuracies in the 92% to 95% range fairly quickly. Over several weeks of development, train/validate/test scheme was adopted along with an Early Stopping technique which improved the performance to between 94% and 98%. In addition support for results directory uniquing, live updating metrics log files, graph image generation, command line argument support and other features to help with data analysis were implemented. Finally Stratified K-Fold Cross Validation was adopted with a train/validate scheme. This achieved accuracies between 95% and 97%.<br>
+Various experiments were performed during development of this project using the included datasets. The script was initially developed on the DS4Tan.csv dataset with a simple train/test Hold-Out validation scheme. It achieved accuracies in the 92% to 95% range fairly quickly. Over several weeks of development, train/validate/test scheme was adopted along with an Early Stopping technique. This improved performance to between 94% and 98%. In addition, support for results directory uniquing, continually updating metrics log files, graph image generation, command line argument support and other features to help with data analysis were implemented. Finally Stratified K-Fold Cross Validation was adopted with a train/validate scheme. This achieved accuracies between 95% and 97%.<br>
 <br>
-One of the goals of this project was to find and compare the highest performing models for each dataset. Due to an issue in how _DS4_merged_generated.csv_ was created all of the values were changed from floating point to integer via rounding. This made all the _PctXXX_ features contain only 1s or 0s, effectively crippling the dataset. In order to make a somewhat proper comparison of datasets and models the _XXX_nopct.csv_ datasets were created with all of the _PctXXX_ features removed.<br>
+One of the goals of this project was to find and compare the highest performing models for each dataset. Due to an issue in how _DS4_merged_generated.csv_ was created all of the values were changed from floating point to integer via rounding. This made all the _PctXXX_ features contain only 1s or 0s, effectively crippling the dataset. In order to make a somewhat proper comparison of datasets and models the _XXX_nopct.csv_ datasets were created with all of the _PctXXX_ features removed. These modified datasets were also run through the script.<br>
+<br>
+Each experiment ran the script with its default settings against all of the datasets. This includes learning rates of .01, 0.001, 0.0001 and 43 hidden layer configurations. Each hidden layer configuration indicates the number of layers and the number of nodes in each layer. This resulted in a total of 126 model configurations per dataset for a grand total of 1008. Below is the list of hidden layers the script uses.
+
+```
+                          [5, 5], [10, 10], [5, 10], [10, 5], [10, 25], [25, 10],
+                          [50, 50], [100, 100], [50, 50, 50], [100, 100, 100],
+                          [200, 200], [300, 300], [400, 400], [500, 500], [100, 150],
+                          [150, 100], [100, 300], [300, 100], [200, 300], [300, 200],
+                          [400, 500], [500, 400], [800, 600], [600, 800],
+                          [100, 200, 50], [50, 200, 100], [100, 200, 300],
+                          [300, 200, 100], [50, 100, 200], [200, 100, 50],
+                          [100, 50, 100, 50], [50, 100, 50, 100], [300, 100, 300, 100], 
+                          [100, 300, 100, 300], [600, 100, 600, 100],
+                          [100, 600, 100, 600], [103, 307], [307, 103],
+                          [173, 421, 223], [223, 421, 173], [173, 421, 223, 829, 103],
+                          [103, 829, 223, 421, 173]
+```
+A table of the best performing model against each dataset is below.<br>
+
+<center><img src="./example-graphs/results-table.png" alt="Experiment Results Table" width="700"/></center><br>
 <br>
 
 ----
 ## Future Plans
 
-I'd like to:<br>
 - Fix _DS4_merged_generated.csv_ floating point to integer problem and rerun the experiments on it.
 - Find out how _DS4_merged_generated.csv_ is created. 
 - Figure out why running the script on a GPU isn't significantly faster than on the CPU.
+- Set up multiprocessing support so more than one dataset, or model configuration, can be processed at one time.
+- Set up multi-GPU support to take advantage of some of CSUs hardware. 
 - Add a __--result_path__ command line argument to specify where the results will be written.
 - Change the timestamped results folder to be just the date and time. The timestamped results directory then contains a folder per dataset. Each dataset folder would contain the results from that dataset.
 - Add support to generate a results table file from the metrics file for each dataset.
 - Add support for paths to __--csv_names__.
 - Add support for multiple lists of hidden layers to __--hidden_layers__.
-- Profile the script to see if any performance speed ups could be made.
+- Profile the script to see if any performance speed ups could be achieved.
 <br>
 
 ----
 ## Conclusion
 
-The final set of experiments consisted of running the script with default values against all of the supplied datasets distributed among a few CS department machines with CUDA GPUs. After many hours of processing some observations became clear:<br>
+The final set of experiments consisted of running the script with default values against all of the supplied datasets. It was distributed among a few CS department machines with CUDA GPUs. After many hours of processing some observations became clear:<br>
 
 - _DS4Tran.csv_ performed the best overall with a __97.4%__ accuracy on a model configured with [50, 50] hidden layers and a learning rate of 0.001
-- _DS4Tran_nopct_.csv_ does the second best with a __95.9%__ accuracy on a model configured with [50, 50] hidden layers and a learning rate of 0.0001
-- Removing the _PctXXX_ features reduces the accuracy by about 2% across the board.
+- _DS4Tran_nopct_.csv_ did the second best with a __95.9%__ accuracy on a model configured with [50, 50] hidden layers and a learning rate of 0.0001
+- Datasets with the _PctXXX_ features removed produced about 2% lower accuracies than datasets with the _PctXXX_ features.
 - All the datasets, except for _DS4_merged_generated.csv_ and _DS4_merged_generated_nopct.csv_ contained a lot of duplicate samples and columns with 95% of the values the same. This reduced the dataset down considerably. Its unclear if it had an effect on the results, however.
+- _DS4_merged_generated.csv_ (__94.61%__) performed slightly worse than _DS4Tan_2.csv_ (__94.68%__)
+- _DS4_merged_generated.csv_ (__94.61%__) performed worse than _DS4Tan_1.csv_ (__95.4%__) & _DS4Tan.csv_ (__97.4%__).
+- _DS4_merged_generated.csv_ (__94.61%__) performed about the same as _DS4_merged_generated_nopct.csv_ (__94.5%__).
+- It appears that the binary values of the _PctXXX_ features in _DS4_merged_generated.csv_ didn't have much of an effect. The model likely learned to ignore them.
 - _DS4_merged_generated_nopct.csv_ (__94.5%__) performed marginally better than _DS4Tan_1_nopct.csv_ (__93.96%__) and _DS4Tan_2_nopct.csv_ (__93%__) datasets.
 - _DS4_merged_generated_nopct.csv_ (__94.5%__) performed about 1.5% worse than _DS4Tran_nopct_.csv_ (__95.9%__).
 - Models with a learning rate of 0.01 converged very quickly. Sometimes in less than 100 epochs.
 - The accuracy and loss curves for models with a 0.01 learning rate were very erratic. This indicates the model will produce unreliable results. A high accuracy or low loss were almost by chance.
+- To run all of the experiments, distributed across multiple machines in parallel, it took roughly 16 hours to complete with about 88 hours of total CPU time.
 - Models with a learning rate of 0.001 converged at a moderate pace. Typically within 200 and 500 epochs.
 - Models with a learning rate of 0.0001 converged very slowly. Often taking 3000 to 4000 epochs for the loss values to stop decreasing and the training to stop.
-- The accuracy and loss curves for models with 0.001 and 0.0001 learning rates were smooth and followed similar trajectories. The loss curve after the Minimum Validation Loss point was noticeably trending upwards. This indicates that the model was starting to overfit after the Minimum Validation Loss point. Therefor, the Minimum Validation Loss was the apex of the curve and produced a model with minimum loss and minimal overfitting.
+- The accuracy and loss curves for models with 0.001 and 0.0001 learning rates were smooth and followed similar trajectories.
+- Adding Early Stopping support to the training phase took a lot of the guess work out of finding the number of epochs to produce the best results. In most cases Early Stopping was early in name only. The number of epochs to find the Minimum Validation Loss ranged from 100 to 5000.
+- The loss curve after the Minimum Validation Loss point was noticeably trending upwards. This indicates that the model was starting to overfit after the Minimum Validation Loss point. 
+- By using the Minimum Validation Loss to determine the model state to use for testing it help reduce the possibility of overfitting.
+- Minimum Validation Loss and Maximum Validation Accuracy were not at the same epoch. I'm curious why that was the case. 
 - Stratified K-Fold Cross Validation helped tremendously in comparing different models.
 - The area under the ROC curve percentages did not help much in evaluating the models. They were all between 98% and 99.9%.
 <br>
-<br>
-Table of the results of each of the highest performing models per dataset:
-<center><img src="./example-graphs/results-table.png" alt="Experiment Results Table" width="700"/></center><br>
 <br>
